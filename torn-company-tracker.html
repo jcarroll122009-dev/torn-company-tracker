@@ -299,7 +299,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 820px;
+      min-width: 940px;
     }
 
     th,
@@ -913,6 +913,13 @@
             </div>
             <div class="alert-list" id="replacementList"></div>
           </section>
+
+          <section class="panel" aria-label="Role fit recommendations">
+            <div class="panel-head">
+              <h2>Role Fit</h2>
+            </div>
+            <div class="alert-list" id="roleFitList"></div>
+          </section>
         </section>
 
         <section class="dashboard-grid" aria-label="Data review panels">
@@ -967,6 +974,7 @@
                   <th>Efficiency</th>
                   <th>Sales</th>
                   <th>Activity</th>
+                  <th>Best Role</th>
                   <th>Wage</th>
                   <th>Profit</th>
                 </tr>
@@ -1051,6 +1059,40 @@
       LOGI: { label: "Logistics", dailyProfit: 1500000, avgEffect: 88, maxWages: 1000000, minActivity: 84 }
     };
 
+    const roleProfiles = {
+      custom: [
+        { name: "Manager", weights: { effectiveness: 0.42, activity: 0.24, sales: 0.12, profit: 0.12, lowAddiction: 0.1 }, reason: "balanced leadership and consistency" },
+        { name: "Sales Executive", weights: { sales: 0.36, effectiveness: 0.25, activity: 0.18, profit: 0.16, lowAddiction: 0.05 }, reason: "sales output and active play" },
+        { name: "Trainer", weights: { effectiveness: 0.34, trains: 0.22, activity: 0.2, lowAddiction: 0.14, profit: 0.1 }, reason: "train value and clean effectiveness" },
+        { name: "Assistant", weights: { activity: 0.3, lowWage: 0.25, effectiveness: 0.2, lowAddiction: 0.15, profit: 0.1 }, reason: "low-cost support role" }
+      ],
+      AN: [
+        { name: "Sales Executive", weights: { sales: 0.38, effectiveness: 0.24, activity: 0.2, profit: 0.13, lowAddiction: 0.05 }, reason: "customer/sales pressure" },
+        { name: "Manager", weights: { effectiveness: 0.38, activity: 0.26, profit: 0.14, sales: 0.12, lowAddiction: 0.1 }, reason: "keeps output steady" },
+        { name: "Trainer", weights: { effectiveness: 0.32, trains: 0.22, activity: 0.18, lowAddiction: 0.18, profit: 0.1 }, reason: "builds weaker workers" }
+      ],
+      TV: [
+        { name: "Producer", weights: { effectiveness: 0.36, activity: 0.24, profit: 0.18, sales: 0.12, lowAddiction: 0.1 }, reason: "high effectiveness and steady activity" },
+        { name: "Advertiser", weights: { sales: 0.34, activity: 0.24, effectiveness: 0.2, profit: 0.16, lowAddiction: 0.06 }, reason: "sales-like promotion output" },
+        { name: "Manager", weights: { effectiveness: 0.4, activity: 0.25, lowAddiction: 0.15, profit: 0.12, sales: 0.08 }, reason: "stable high-end oversight" }
+      ],
+      LS: [
+        { name: "Performer", weights: { sales: 0.32, activity: 0.26, effectiveness: 0.22, profit: 0.14, lowAddiction: 0.06 }, reason: "active customer output" },
+        { name: "Manager", weights: { effectiveness: 0.38, activity: 0.24, lowAddiction: 0.14, profit: 0.14, sales: 0.1 }, reason: "keeps the floor running" },
+        { name: "Assistant", weights: { activity: 0.3, lowWage: 0.25, effectiveness: 0.18, lowAddiction: 0.17, profit: 0.1 }, reason: "cheap support value" }
+      ],
+      PSF: [
+        { name: "Security Consultant", weights: { effectiveness: 0.36, activity: 0.26, profit: 0.18, lowAddiction: 0.12, sales: 0.08 }, reason: "high reliability and output" },
+        { name: "Manager", weights: { effectiveness: 0.4, activity: 0.24, lowAddiction: 0.16, profit: 0.14, lowWage: 0.06 }, reason: "strong clean leadership" },
+        { name: "Trainer", weights: { effectiveness: 0.3, trains: 0.24, activity: 0.2, lowAddiction: 0.16, profit: 0.1 }, reason: "develops lower performers" }
+      ],
+      LOGI: [
+        { name: "Driver", weights: { activity: 0.32, effectiveness: 0.24, profit: 0.16, lowWage: 0.16, lowAddiction: 0.12 }, reason: "active low-cost throughput" },
+        { name: "Dispatcher", weights: { effectiveness: 0.34, activity: 0.28, sales: 0.14, profit: 0.14, lowAddiction: 0.1 }, reason: "coordination and consistency" },
+        { name: "Manager", weights: { effectiveness: 0.38, activity: 0.24, profit: 0.16, lowAddiction: 0.14, lowWage: 0.08 }, reason: "steady management fit" }
+      ]
+    };
+
     const state = {
       employees: JSON.parse(localStorage.getItem("tcEmployees") || "null") || seedEmployees,
       profits: JSON.parse(localStorage.getItem("tcProfits") || "null") || makeProfitSeed(),
@@ -1099,6 +1141,7 @@
       actionList: document.getElementById("actionList"),
       trainingList: document.getElementById("trainingList"),
       replacementList: document.getElementById("replacementList"),
+      roleFitList: document.getElementById("roleFitList"),
       confirmedGrid: document.getElementById("confirmedGrid"),
       compareList: document.getElementById("compareList"),
       historyList: document.getElementById("historyList"),
@@ -1507,6 +1550,44 @@
       return Math.max(0, Math.min(100, Math.round(effectivenessNeed + valueBonus - activityPenalty - addictionPenalty)));
     }
 
+    function roleMetrics(employee) {
+      const maxSales = Math.max(1, ...state.employees.map((item) => item.sales));
+      const maxProfit = Math.max(1, ...state.employees.map((item) => item.profit));
+      const maxWage = Math.max(1, ...state.employees.map((item) => item.wage));
+      return {
+        effectiveness: employee.effectiveness,
+        activity: employee.activity,
+        sales: Math.max(0, Math.min(100, (employee.sales / maxSales) * 100)),
+        profit: Math.max(0, Math.min(100, (employee.profit / maxProfit) * 100)),
+        lowWage: Math.max(0, Math.min(100, 100 - (employee.wage / maxWage) * 100)),
+        lowAddiction: Math.max(0, 100 - employee.addiction * 10),
+        trains: Math.max(0, Math.min(100, 100 - employee.trains * 12))
+      };
+    }
+
+    function roleFit(employee) {
+      const profiles = roleProfiles[state.companyPreset] || roleProfiles.custom;
+      const metrics = roleMetrics(employee);
+      const scored = profiles.map((profile) => {
+        const score = Object.entries(profile.weights).reduce((sum, [metric, weight]) => {
+          return sum + (metrics[metric] || 0) * weight;
+        }, 0);
+        return { ...profile, score: Math.round(score) };
+      }).sort((a, b) => b.score - a.score);
+      const best = scored[0];
+      const runnerUp = scored[1];
+      const currentMatch = employee.role && employee.role.toLowerCase().includes(best.name.toLowerCase());
+      return {
+        bestRole: best.name,
+        score: Math.max(0, Math.min(100, best.score)),
+        runnerUp: runnerUp?.name || "None",
+        runnerUpScore: runnerUp?.score || 0,
+        currentMatch,
+        reason: best.reason,
+        metrics
+      };
+    }
+
     function buildAlerts() {
       const breakdown = currentBreakdown();
       const alerts = [];
@@ -1569,6 +1650,20 @@
           <span>Rank ${index + 1}</span>
           <strong>${esc(employee.name)}: ${score}% replace risk</strong>
           <p>${money(employee.profit)} profit, ${money(employee.wage)} wage, ${pct(employee.activity)} activity, ${pct(employee.effectiveness)} effectiveness.</p>
+        </div>
+      `).join("");
+    }
+
+    function renderRoleFit() {
+      const items = [...state.employees]
+        .map((employee) => ({ employee, fit: roleFit(employee) }))
+        .sort((a, b) => b.fit.score - a.fit.score)
+        .slice(0, 8);
+      els.roleFitList.innerHTML = items.map(({ employee, fit }, index) => `
+        <div class="alert-item ${fit.currentMatch ? "good" : fit.score >= 75 ? "" : "high"}" data-alert-id="${employee.id}">
+          <span>Fit ${index + 1}</span>
+          <strong>${esc(employee.name)} -> ${esc(fit.bestRole)} (${fit.score}%)</strong>
+          <p>${fit.currentMatch ? "Already looks correctly placed." : `Current: ${employee.role}.`} Next best: ${fit.runnerUp} (${fit.runnerUpScore}%). Based on ${fit.reason}.</p>
         </div>
       `).join("");
     }
@@ -1636,6 +1731,7 @@
         const active = employee.id === state.selectedId ? " active" : "";
         const open = state.openRows.has(employee.id);
         const risk = calculateRisk(employee);
+        const fit = roleFit(employee);
         const profitPerWage = employee.profit / Math.max(1, employee.wage);
         return `
           <tr class="employee-row${active}" data-id="${employee.id}">
@@ -1650,18 +1746,20 @@
             <td>${pct(employee.effectiveness)}</td>
             <td>${employee.sales.toLocaleString()}</td>
             <td>${pct(employee.activity)}</td>
+            <td><span class="delta ${fit.currentMatch ? "good" : ""}">${esc(fit.bestRole)} ${fit.score}%</span></td>
             <td>${money(employee.wage)}</td>
             <td><span class="delta ${employee.profit >= 0 ? "good" : "bad"}">${money(employee.profit)}</span></td>
           </tr>
           ${open ? `
           <tr class="detail-row">
-            <td colspan="7">
+            <td colspan="8">
               <div class="detail">
                 <div class="detail-card"><span>Rank</span><strong>#${rankById.get(employee.id)}</strong><p>Profit per wage: ${profitPerWage.toFixed(2)}x</p></div>
                 <div class="detail-card"><span>Last seen</span><strong>${esc(employee.lastSeen)}</strong><p>Activity: ${pct(employee.activity)}</p></div>
                 <div class="detail-card"><span>Addiction</span><strong>${employee.addiction}%</strong><p>${employee.addiction > 4 ? "Rehab recommended before bonus review." : "Currently manageable."}</p></div>
                 <div class="detail-card"><span>Merits</span><strong>${employee.merits}</strong><p>Training value: ${employee.trains} trains this week.</p></div>
                 <div class="detail-card"><span>Train history</span><strong>${employee.trains} this week</strong><p>Next train priority: ${employee.effectiveness < 80 ? "High" : employee.activity < 70 ? "Hold" : "Normal"}.</p></div>
+                <div class="detail-card"><span>Best role</span><strong>${esc(fit.bestRole)} (${fit.score}%)</strong><p>${fit.currentMatch ? "Current role matches recommendation." : `Current role: ${esc(employee.role)}. Runner-up: ${esc(fit.runnerUp)}.`}</p></div>
                 <div class="detail-card"><span>Risk score</span><strong>${pct(risk)}</strong><p>${esc(employee.notes)}</p></div>
                 <div class="detail-card wide"><span>Manager notes</span><textarea data-note-id="${employee.id}" placeholder="Add a private note for this employee">${esc(employee.notes)}</textarea></div>
               </div>
@@ -1676,9 +1774,11 @@
       const employee = selectedEmployee();
       if (!employee) return;
       const risk = calculateRisk(employee);
+      const fit = roleFit(employee);
       els.panelTitle.textContent = employee ? employee.name + " Readout" : "Company Readout";
       els.readout.innerHTML = `
         <div class="readout-row"><span>Position</span><strong>${esc(employee.role)}</strong></div>
+        <div class="readout-row"><span>Best role</span><strong>${esc(fit.bestRole)} ${fit.score}%</strong></div>
         <div class="readout-row"><span>Effectiveness</span><strong>${pct(employee.effectiveness)}</strong></div>
         <div class="readout-row"><span>Daily sales</span><strong>${employee.sales.toLocaleString()}</strong></div>
         <div class="readout-row"><span>Wage</span><strong>${money(employee.wage)}</strong></div>
@@ -1792,6 +1892,7 @@
       renderActions();
       renderTrainingPriorities();
       renderReplacementScores();
+      renderRoleFit();
       renderSnapshotCompare();
       renderHistory();
       renderEmployees();
@@ -2197,6 +2298,10 @@
       if (item) openEmployee(item.dataset.alertId);
     });
     els.replacementList.addEventListener("click", (event) => {
+      const item = event.target.closest("[data-alert-id]");
+      if (item) openEmployee(item.dataset.alertId);
+    });
+    els.roleFitList.addEventListener("click", (event) => {
       const item = event.target.closest("[data-alert-id]");
       if (item) openEmployee(item.dataset.alertId);
     });
