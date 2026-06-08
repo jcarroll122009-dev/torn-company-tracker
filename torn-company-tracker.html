@@ -709,6 +709,15 @@
       accent-color: var(--cyan);
     }
 
+    .collapse-button {
+      display: none;
+      min-width: 36px;
+    }
+
+    .panel.collapsed > :not(.panel-head) {
+      display: none;
+    }
+
     .hidden {
       display: none;
     }
@@ -780,6 +789,10 @@
       input,
       select {
         width: 100%;
+      }
+
+      .collapse-button {
+        display: grid;
       }
     }
   </style>
@@ -919,6 +932,21 @@
               <h2>Role Fit</h2>
             </div>
             <div class="alert-list" id="roleFitList"></div>
+          </section>
+
+          <section class="panel" aria-label="Best company setup">
+            <div class="panel-head">
+              <h2>Best Setup</h2>
+            </div>
+            <div class="alert-list" id="setupList"></div>
+          </section>
+
+          <section class="panel" aria-label="Role change learning log">
+            <div class="panel-head">
+              <h2>Role Change Log</h2>
+              <button class="text-button" id="clearRoleLog" type="button">Clear Log</button>
+            </div>
+            <div class="history-list" id="roleLogList"></div>
           </section>
         </section>
 
@@ -1115,6 +1143,7 @@
         minActivity: 80
       },
       syncHistory: JSON.parse(localStorage.getItem("tcSyncHistory") || "null") || [],
+      roleChanges: JSON.parse(localStorage.getItem("tcRoleChanges") || "null") || [],
       openRows: new Set(),
       range: "day",
       employeeFilter: localStorage.getItem("tcEmployeeFilter") || "all",
@@ -1142,6 +1171,8 @@
       trainingList: document.getElementById("trainingList"),
       replacementList: document.getElementById("replacementList"),
       roleFitList: document.getElementById("roleFitList"),
+      setupList: document.getElementById("setupList"),
+      roleLogList: document.getElementById("roleLogList"),
       confirmedGrid: document.getElementById("confirmedGrid"),
       compareList: document.getElementById("compareList"),
       historyList: document.getElementById("historyList"),
@@ -1168,6 +1199,7 @@
       apiKeyInput: document.getElementById("apiKeyInput"),
       syncApi: document.getElementById("syncApi"),
       clearApi: document.getElementById("clearApi"),
+      clearRoleLog: document.getElementById("clearRoleLog"),
       apiMode: document.getElementById("apiMode"),
       apiInterval: document.getElementById("apiInterval"),
       realDataOnly: document.getElementById("realDataOnly"),
@@ -1571,21 +1603,41 @@
       const scored = profiles.map((profile) => {
         const score = Object.entries(profile.weights).reduce((sum, [metric, weight]) => {
           return sum + (metrics[metric] || 0) * weight;
-        }, 0);
+        }, 0) + learnedRoleBoost(profile.name);
         return { ...profile, score: Math.round(score) };
       }).sort((a, b) => b.score - a.score);
       const best = scored[0];
       const runnerUp = scored[1];
       const currentMatch = employee.role && employee.role.toLowerCase().includes(best.name.toLowerCase());
+      const confidence = roleConfidence(employee, best.score, runnerUp?.score || 0);
       return {
         bestRole: best.name,
         score: Math.max(0, Math.min(100, best.score)),
         runnerUp: runnerUp?.name || "None",
         runnerUpScore: runnerUp?.score || 0,
         currentMatch,
+        confidence,
+        warning: confidence < 55 ? "Low confidence: needs live sync or more history." : confidence < 75 ? "Medium confidence: confirm with another sync." : "High confidence.",
         reason: best.reason,
         metrics
       };
+    }
+
+    function learnedRoleBoost(roleName) {
+      const finished = state.roleChanges.filter((change) => change.newRole === roleName && change.after);
+      if (!finished.length) return 0;
+      const wins = finished.filter((change) => {
+        return (change.after.profit - change.before.profit) > 0 || (change.after.effectiveness - change.before.effectiveness) > 0;
+      }).length;
+      return Math.min(8, Math.round((wins / finished.length) * 8));
+    }
+
+    function roleConfidence(employee, bestScore, runnerScore) {
+      const spread = Math.max(0, bestScore - runnerScore);
+      const syncScore = state.apiLastSync ? 28 : 8;
+      const dataScore = Math.min(32, (employee.sales > 0 ? 8 : 0) + (employee.profit !== 0 ? 8 : 0) + (employee.activity > 0 ? 8 : 0) + (employee.effectiveness > 0 ? 8 : 0));
+      const historyScore = Math.min(20, state.roleChanges.filter((change) => change.after).length * 4);
+      return Math.max(20, Math.min(100, Math.round(syncScore + dataScore + historyScore + spread * 0.8)));
     }
 
     function buildAlerts() {
@@ -1663,9 +1715,95 @@
         <div class="alert-item ${fit.currentMatch ? "good" : fit.score >= 75 ? "" : "high"}" data-alert-id="${employee.id}">
           <span>Fit ${index + 1}</span>
           <strong>${esc(employee.name)} -> ${esc(fit.bestRole)} (${fit.score}%)</strong>
-          <p>${fit.currentMatch ? "Already looks correctly placed." : `Current: ${employee.role}.`} Next best: ${fit.runnerUp} (${fit.runnerUpScore}%). Based on ${fit.reason}.</p>
+          <p>${fit.currentMatch ? "Already looks correctly placed." : `Current: ${employee.role}.`} ${fit.warning} Next best: ${fit.runnerUp} (${fit.runnerUpScore}%). Based on ${fit.reason}.</p>
         </div>
       `).join("");
+    }
+
+    function renderBestSetup() {
+      const profiles = roleProfiles[state.companyPreset] || roleProfiles.custom;
+      const available = new Set(state.employees.map((employee) => employee.id));
+      const assigned = profiles.map((profile) => {
+        const best = state.employees
+          .filter((employee) => available.has(employee.id))
+          .map((employee) => ({ employee, score: scoreForRole(employee, profile) }))
+          .sort((a, b) => b.score - a.score)[0];
+        if (best) available.delete(best.employee.id);
+        return { profile, ...best };
+      }).filter((item) => item.employee);
+      els.setupList.innerHTML = assigned.map(({ profile, employee, score }) => `
+        <div class="alert-item ${employee.role.toLowerCase().includes(profile.name.toLowerCase()) ? "good" : ""}" data-alert-id="${employee.id}">
+          <span>${esc(profile.name)}</span>
+          <strong>${esc(employee.name)} (${Math.round(score)}%)</strong>
+          <p>${employee.role.toLowerCase().includes(profile.name.toLowerCase()) ? "Already assigned here." : `Move from ${esc(employee.role)} if you want the strongest setup.`} Based on ${profile.reason}.</p>
+        </div>
+      `).join("");
+    }
+
+    function scoreForRole(employee, profile) {
+      const metrics = roleMetrics(employee);
+      return Object.entries(profile.weights).reduce((sum, [metric, weight]) => {
+        return sum + (metrics[metric] || 0) * weight;
+      }, 0) + learnedRoleBoost(profile.name);
+    }
+
+    function employeeSnapshot(employee) {
+      return {
+        profit: employee.profit,
+        effectiveness: employee.effectiveness,
+        activity: employee.activity,
+        sales: employee.sales,
+        wage: employee.wage,
+        addiction: employee.addiction
+      };
+    }
+
+    function markRoleChanged(id) {
+      const employee = state.employees.find((item) => item.id === Number(id));
+      if (!employee) return;
+      const fit = roleFit(employee);
+      state.roleChanges.push({
+        id: Date.now(),
+        employeeId: employee.id,
+        name: employee.name,
+        oldRole: employee.role,
+        newRole: fit.bestRole,
+        before: employeeSnapshot(employee),
+        after: null,
+        changedAt: Date.now(),
+        note: `Marked from app with ${fit.confidence}% confidence.`
+      });
+      employee.role = fit.bestRole;
+      state.roleChanges = state.roleChanges.slice(-40);
+      renderAll();
+    }
+
+    function updateRoleChangeOutcomes() {
+      state.roleChanges.forEach((change) => {
+        const employee = state.employees.find((item) => item.id === change.employeeId);
+        if (!employee) return;
+        if (!change.after || Date.now() - change.changedAt > 10 * 60 * 1000) {
+          change.after = employeeSnapshot(employee);
+        }
+      });
+    }
+
+    function renderRoleLog() {
+      updateRoleChangeOutcomes();
+      const logs = state.roleChanges.slice(-8).reverse();
+      els.roleLogList.innerHTML = logs.length ? logs.map((change) => {
+        const after = change.after;
+        const profitDelta = after ? after.profit - change.before.profit : 0;
+        const effDelta = after ? after.effectiveness - change.before.effectiveness : 0;
+        const learned = after && (profitDelta > 0 || effDelta > 0);
+        return `
+          <div class="history-item">
+            <span>${new Date(change.changedAt).toLocaleString()}</span>
+            <strong>${esc(change.name)}: ${esc(change.oldRole)} -> ${esc(change.newRole)}</strong>
+            <p>${after ? `${learned ? "Learned positive signal." : "Watching/neutral signal."} Profit ${money(profitDelta)}, effectiveness ${effDelta >= 0 ? "+" : ""}${pct(effDelta)}.` : "Waiting for the next sync or stat change."}</p>
+          </div>
+        `;
+      }).join("") : `<div class="history-item"><span>No role changes marked</span><strong>Use Mark Changed</strong><p>Open an employee and mark a recommended role change to start learning from before/after results.</p></div>`;
     }
 
     function renderSnapshotCompare() {
@@ -1759,8 +1897,9 @@
                 <div class="detail-card"><span>Addiction</span><strong>${employee.addiction}%</strong><p>${employee.addiction > 4 ? "Rehab recommended before bonus review." : "Currently manageable."}</p></div>
                 <div class="detail-card"><span>Merits</span><strong>${employee.merits}</strong><p>Training value: ${employee.trains} trains this week.</p></div>
                 <div class="detail-card"><span>Train history</span><strong>${employee.trains} this week</strong><p>Next train priority: ${employee.effectiveness < 80 ? "High" : employee.activity < 70 ? "Hold" : "Normal"}.</p></div>
-                <div class="detail-card"><span>Best role</span><strong>${esc(fit.bestRole)} (${fit.score}%)</strong><p>${fit.currentMatch ? "Current role matches recommendation." : `Current role: ${esc(employee.role)}. Runner-up: ${esc(fit.runnerUp)}.`}</p></div>
+                <div class="detail-card"><span>Best role</span><strong>${esc(fit.bestRole)} (${fit.score}%)</strong><p>${fit.currentMatch ? "Current role matches recommendation." : `Current role: ${esc(employee.role)}. Runner-up: ${esc(fit.runnerUp)}.`} ${fit.warning}</p></div>
                 <div class="detail-card"><span>Risk score</span><strong>${pct(risk)}</strong><p>${esc(employee.notes)}</p></div>
+                <div class="detail-card"><span>Role learning</span><strong>${fit.confidence}% confidence</strong><p><button class="text-button" data-role-change-id="${employee.id}" type="button">Mark Changed</button></p></div>
                 <div class="detail-card wide"><span>Manager notes</span><textarea data-note-id="${employee.id}" placeholder="Add a private note for this employee">${esc(employee.notes)}</textarea></div>
               </div>
             </td>
@@ -1893,8 +2032,10 @@
       renderTrainingPriorities();
       renderReplacementScores();
       renderRoleFit();
+      renderBestSetup();
       renderSnapshotCompare();
       renderHistory();
+      renderRoleLog();
       renderEmployees();
       renderSidePanel();
       renderChart();
@@ -1917,6 +2058,7 @@
       localStorage.setItem("tcLatestBreakdown", JSON.stringify(state.latestBreakdown));
       localStorage.setItem("tcGoals", JSON.stringify(state.goals));
       localStorage.setItem("tcSyncHistory", JSON.stringify(state.syncHistory.slice(-50)));
+      localStorage.setItem("tcRoleChanges", JSON.stringify(state.roleChanges.slice(-40)));
       localStorage.setItem("tcEmployeeFilter", state.employeeFilter);
     }
 
@@ -2262,11 +2404,34 @@
       syncTornApi();
     }
 
+    function setupMobileCollapsers() {
+      document.querySelectorAll(".panel").forEach((panel, index) => {
+        const head = panel.querySelector(".panel-head");
+        if (!head || head.querySelector("[data-collapse-panel]")) return;
+        const button = document.createElement("button");
+        button.className = "icon-button collapse-button";
+        button.type = "button";
+        button.dataset.collapsePanel = String(index);
+        button.title = "Collapse section";
+        button.textContent = "-";
+        button.addEventListener("click", () => {
+          panel.classList.toggle("collapsed");
+          button.textContent = panel.classList.contains("collapsed") ? "+" : "-";
+        });
+        head.appendChild(button);
+      });
+    }
+
     function updateClock() {
       els.clock.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     }
 
     els.employeeBody.addEventListener("click", (event) => {
+      const roleChange = event.target.closest("[data-role-change-id]");
+      if (roleChange) {
+        markRoleChanged(roleChange.dataset.roleChangeId);
+        return;
+      }
       const button = event.target.closest("[data-action='toggle']");
       if (!button) return;
       const id = Number(button.dataset.id);
@@ -2302,6 +2467,10 @@
       if (item) openEmployee(item.dataset.alertId);
     });
     els.roleFitList.addEventListener("click", (event) => {
+      const item = event.target.closest("[data-alert-id]");
+      if (item) openEmployee(item.dataset.alertId);
+    });
+    els.setupList.addEventListener("click", (event) => {
       const item = event.target.closest("[data-alert-id]");
       if (item) openEmployee(item.dataset.alertId);
     });
@@ -2345,6 +2514,10 @@
     els.exportEmployees.addEventListener("click", exportEmployeesCsv);
     els.exportProfit.addEventListener("click", exportProfitCsv);
     els.exportHistory.addEventListener("click", exportHistoryCsv);
+    els.clearRoleLog.addEventListener("click", () => {
+      state.roleChanges = [];
+      renderAll();
+    });
     els.syncApi.addEventListener("click", syncTornApi);
     els.apiKeyInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") syncTornApi();
@@ -2443,6 +2616,7 @@
     });
 
     updateClock();
+    setupMobileCollapsers();
     renderAll();
     setInterval(updateClock, 1000);
     setInterval(() => {
