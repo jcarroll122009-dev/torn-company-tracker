@@ -941,6 +941,13 @@
             <div class="alert-list" id="setupList"></div>
           </section>
 
+          <section class="panel" aria-label="Company optimizer">
+            <div class="panel-head">
+              <h2>Company Optimizer</h2>
+            </div>
+            <div class="alert-list" id="optimizerList"></div>
+          </section>
+
           <section class="panel" aria-label="Role change learning log">
             <div class="panel-head">
               <h2>Role Change Log</h2>
@@ -1019,6 +1026,14 @@
           <button class="icon-button" id="resetData" type="button" title="Reset demo data">R</button>
         </div>
         <div class="side-body">
+          <div class="api-panel">
+            <h2>Profiles</h2>
+            <div class="api-grid three">
+              <select id="profileSelect" aria-label="Saved dashboard profile"></select>
+              <input id="profileName" type="text" placeholder="New profile">
+              <button class="text-button" id="saveProfile" type="button">Save</button>
+            </div>
+          </div>
           <div class="readout" id="readout"></div>
           <div class="mini-chart">
             <canvas id="miniCanvas" aria-label="Selected employee mini chart"></canvas>
@@ -1054,6 +1069,11 @@
               <label for="realDataOnly">Real data only mode</label>
               <input id="realDataOnly" type="checkbox">
             </div>
+            <div class="switch-row">
+              <label for="useProxy">Use backend proxy</label>
+              <input id="useProxy" type="checkbox">
+            </div>
+            <input id="proxyUrl" type="url" placeholder="Backend URL, e.g. https://your-proxy.onrender.com">
             <div class="api-status" id="apiStatus">Demo mode. Add a key and sync to use live company data.</div>
             <div class="api-status" id="permissionStatus">API permissions not checked yet.</div>
             <div class="quality-grid" id="dataQuality"></div>
@@ -1132,6 +1152,10 @@
       apiPermissions: JSON.parse(localStorage.getItem("tcApiPermissions") || "null"),
       apiMode: localStorage.getItem("tcApiMode") || "auto",
       apiInterval: Number(localStorage.getItem("tcApiInterval") || 10),
+      useProxy: localStorage.getItem("tcUseProxy") === "true",
+      proxyUrl: localStorage.getItem("tcProxyUrl") || "",
+      profiles: JSON.parse(localStorage.getItem("tcProfiles") || "null") || {},
+      activeProfile: localStorage.getItem("tcActiveProfile") || "Default",
       realDataOnly: localStorage.getItem("tcRealDataOnly") === "true",
       companyPreset: localStorage.getItem("tcCompanyPreset") || "custom",
       lastAutoSyncAttempt: 0,
@@ -1172,6 +1196,7 @@
       replacementList: document.getElementById("replacementList"),
       roleFitList: document.getElementById("roleFitList"),
       setupList: document.getElementById("setupList"),
+      optimizerList: document.getElementById("optimizerList"),
       roleLogList: document.getElementById("roleLogList"),
       confirmedGrid: document.getElementById("confirmedGrid"),
       compareList: document.getElementById("compareList"),
@@ -1200,8 +1225,13 @@
       syncApi: document.getElementById("syncApi"),
       clearApi: document.getElementById("clearApi"),
       clearRoleLog: document.getElementById("clearRoleLog"),
+      profileSelect: document.getElementById("profileSelect"),
+      profileName: document.getElementById("profileName"),
+      saveProfile: document.getElementById("saveProfile"),
       apiMode: document.getElementById("apiMode"),
       apiInterval: document.getElementById("apiInterval"),
+      useProxy: document.getElementById("useProxy"),
+      proxyUrl: document.getElementById("proxyUrl"),
       realDataOnly: document.getElementById("realDataOnly"),
       apiStatus: document.getElementById("apiStatus"),
       permissionStatus: document.getElementById("permissionStatus"),
@@ -1740,6 +1770,76 @@
       `).join("");
     }
 
+    function optimizerMoves() {
+      const roleMoves = state.employees.map((employee) => {
+        const fit = roleFit(employee);
+        const currentProfile = (roleProfiles[state.companyPreset] || roleProfiles.custom)
+          .find((profile) => employee.role.toLowerCase().includes(profile.name.toLowerCase()));
+        const currentScore = currentProfile ? scoreForRole(employee, currentProfile) : 45;
+        const improvement = Math.max(0, Math.round(fit.score - currentScore));
+        return { employee, fit, improvement };
+      }).filter((item) => item.improvement > 8 && !item.fit.currentMatch);
+      const replace = [...state.employees].map((employee) => ({ employee, score: replacementScore(employee) })).sort((a, b) => b.score - a.score);
+      const train = [...state.employees].map((employee) => ({ employee, score: trainingScore(employee) })).sort((a, b) => b.score - a.score);
+      const wages = [...state.employees].map((employee) => ({
+        employee,
+        pressure: Math.round((employee.wage / Math.max(1, employee.profit + employee.wage)) * 100)
+      })).sort((a, b) => b.pressure - a.pressure);
+      const expectedGain = roleMoves.reduce((sum, item) => sum + item.improvement * 15000, 0) +
+        train.slice(0, 2).reduce((sum, item) => sum + item.score * 5000, 0);
+      return { roleMoves, replace, train, wages, expectedGain };
+    }
+
+    function renderOptimizer() {
+      const plan = optimizerMoves();
+      const topMove = plan.roleMoves[0];
+      const topReplace = plan.replace[0];
+      const topTrain = plan.train[0];
+      const topWage = plan.wages[0];
+      const rows = [
+        topMove ? {
+          label: "Role move",
+          employee: topMove.employee,
+          title: `${topMove.employee.name}: ${topMove.employee.role} -> ${topMove.fit.bestRole}`,
+          body: `Expected role-fit improvement ${topMove.improvement} points. ${topMove.fit.warning}`
+        } : {
+          label: "Role move",
+          title: "No urgent role moves",
+          body: "Current role placement is close to the optimizer's best setup."
+        },
+        topTrain ? {
+          label: "Train first",
+          employee: topTrain.employee,
+          title: `${topTrain.employee.name}: ${topTrain.score}% train value`,
+          body: `${pct(topTrain.employee.effectiveness)} effectiveness and ${pct(topTrain.employee.activity)} activity.`
+        } : null,
+        topReplace ? {
+          label: "Replace watch",
+          employee: topReplace.employee,
+          title: `${topReplace.employee.name}: ${topReplace.score}% replace risk`,
+          body: `${money(topReplace.employee.profit)} profit, ${money(topReplace.employee.wage)} wage.`
+        } : null,
+        topWage ? {
+          label: "Wage pressure",
+          employee: topWage.employee,
+          title: `${topWage.employee.name}: ${topWage.pressure}% wage pressure`,
+          body: "Review wage if this stays high after the next sync."
+        } : null,
+        {
+          label: "Expected lift",
+          title: money(plan.expectedGain),
+          body: "Rough daily upside from role moves and top training priorities."
+        }
+      ].filter(Boolean);
+      els.optimizerList.innerHTML = rows.map((row) => `
+        <div class="alert-item ${row.employee ? "" : "good"}" ${row.employee ? `data-alert-id="${row.employee.id}"` : ""}>
+          <span>${esc(row.label)}</span>
+          <strong>${esc(row.title)}</strong>
+          <p>${esc(row.body)}</p>
+        </div>
+      `).join("");
+    }
+
     function scoreForRole(employee, profile) {
       const metrics = roleMetrics(employee);
       return Object.entries(profile.weights).reduce((sum, [metric, weight]) => {
@@ -1756,6 +1856,71 @@
         wage: employee.wage,
         addiction: employee.addiction
       };
+    }
+
+    function collectProfileState() {
+      return {
+        employees: state.employees,
+        profits: state.profits,
+        selectedId: state.selectedId,
+        apiKey: state.apiKey,
+        apiLastSync: state.apiLastSync,
+        apiMeta: state.apiMeta,
+        apiPermissions: state.apiPermissions,
+        apiMode: state.apiMode,
+        apiInterval: state.apiInterval,
+        useProxy: state.useProxy,
+        proxyUrl: state.proxyUrl,
+        realDataOnly: state.realDataOnly,
+        companyPreset: state.companyPreset,
+        latestBreakdown: state.latestBreakdown,
+        goals: state.goals,
+        syncHistory: state.syncHistory,
+        roleChanges: state.roleChanges,
+        employeeFilter: state.employeeFilter
+      };
+    }
+
+    function applyProfileState(profile) {
+      if (!profile) return;
+      Object.assign(state, {
+        employees: profile.employees || JSON.parse(JSON.stringify(seedEmployees)),
+        profits: profile.profits || makeProfitSeed(),
+        selectedId: Number(profile.selectedId || 1),
+        apiKey: profile.apiKey || "",
+        apiLastSync: profile.apiLastSync || "",
+        apiError: "",
+        apiMeta: profile.apiMeta || null,
+        apiPermissions: profile.apiPermissions || null,
+        apiMode: profile.apiMode || "auto",
+        apiInterval: Number(profile.apiInterval || 10),
+        useProxy: Boolean(profile.useProxy),
+        proxyUrl: profile.proxyUrl || "",
+        realDataOnly: Boolean(profile.realDataOnly),
+        companyPreset: profile.companyPreset || "custom",
+        latestBreakdown: profile.latestBreakdown || null,
+        goals: profile.goals || companyPresets.custom,
+        syncHistory: profile.syncHistory || [],
+        roleChanges: profile.roleChanges || [],
+        employeeFilter: profile.employeeFilter || "all"
+      });
+      state.openRows.clear();
+    }
+
+    function saveCurrentProfile(name = state.activeProfile) {
+      const safeName = (name || "Default").trim() || "Default";
+      state.activeProfile = safeName;
+      state.profiles[safeName] = collectProfileState();
+      localStorage.setItem("tcProfiles", JSON.stringify(state.profiles));
+      localStorage.setItem("tcActiveProfile", state.activeProfile);
+      renderProfiles();
+    }
+
+    function renderProfiles() {
+      if (!state.profiles[state.activeProfile]) state.profiles[state.activeProfile] = collectProfileState();
+      const names = Object.keys(state.profiles).sort((a, b) => a.localeCompare(b));
+      els.profileSelect.innerHTML = names.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
+      els.profileSelect.value = state.activeProfile;
     }
 
     function markRoleChanged(id) {
@@ -1936,6 +2101,8 @@
       }
       els.apiMode.value = state.apiMode;
       els.apiInterval.value = String(state.apiInterval);
+      els.useProxy.checked = state.useProxy;
+      els.proxyUrl.value = state.proxyUrl;
       els.apiStatus.classList.remove("good", "bad");
       if (state.apiError) {
         els.apiStatus.classList.add("bad");
@@ -1972,6 +2139,10 @@
         <div class="quality-card">
           <span>Auto sync</span>
           <strong>${state.apiInterval ? `${state.apiInterval} min` : "Off"}</strong>
+        </div>
+        <div class="quality-card">
+          <span>API route</span>
+          <strong>${state.useProxy ? "Proxy" : "Browser"}</strong>
         </div>
         <div class="quality-card quality-meter">
           <span>Coverage</span>
@@ -2033,6 +2204,7 @@
       renderReplacementScores();
       renderRoleFit();
       renderBestSetup();
+      renderOptimizer();
       renderSnapshotCompare();
       renderHistory();
       renderRoleLog();
@@ -2040,6 +2212,7 @@
       renderSidePanel();
       renderChart();
       renderPermissions();
+      renderProfiles();
       persist();
     }
 
@@ -2053,6 +2226,8 @@
       localStorage.setItem("tcApiPermissions", JSON.stringify(state.apiPermissions));
       localStorage.setItem("tcApiMode", state.apiMode);
       localStorage.setItem("tcApiInterval", String(state.apiInterval));
+      localStorage.setItem("tcUseProxy", String(state.useProxy));
+      localStorage.setItem("tcProxyUrl", state.proxyUrl);
       localStorage.setItem("tcRealDataOnly", String(state.realDataOnly));
       localStorage.setItem("tcCompanyPreset", state.companyPreset);
       localStorage.setItem("tcLatestBreakdown", JSON.stringify(state.latestBreakdown));
@@ -2060,6 +2235,8 @@
       localStorage.setItem("tcSyncHistory", JSON.stringify(state.syncHistory.slice(-50)));
       localStorage.setItem("tcRoleChanges", JSON.stringify(state.roleChanges.slice(-40)));
       localStorage.setItem("tcEmployeeFilter", state.employeeFilter);
+      localStorage.setItem("tcProfiles", JSON.stringify(state.profiles));
+      localStorage.setItem("tcActiveProfile", state.activeProfile);
     }
 
     function addProfitEntry(amount, type = "sale") {
@@ -2133,7 +2310,7 @@
     }
 
     async function checkKey(key) {
-      const data = await fetchJson(`https://api.torn.com/v2/key/info?key=${encodeURIComponent(key)}`);
+      const data = await fetchTorn("v2/key/info", key);
       if (data.error) throw new Error(data.error.error || data.error.code || "Key check failed");
       return data;
     }
@@ -2150,10 +2327,10 @@
 
     async function fetchCompanyV2(key) {
       const [profile, employees, stock, timestamp] = await Promise.all([
-        fetchJson(`https://api.torn.com/v2/company/profile?key=${encodeURIComponent(key)}`),
-        fetchJson(`https://api.torn.com/v2/company/employees?key=${encodeURIComponent(key)}`),
-        fetchJson(`https://api.torn.com/v2/company/stock?key=${encodeURIComponent(key)}`),
-        fetchJson(`https://api.torn.com/v2/company/timestamp?key=${encodeURIComponent(key)}`)
+        fetchTorn("v2/company/profile", key),
+        fetchTorn("v2/company/employees", key),
+        fetchTorn("v2/company/stock", key),
+        fetchTorn("v2/company/timestamp", key)
       ]);
       const responses = { profile, employees, stock, timestamp };
       Object.values(responses).forEach((response) => {
@@ -2170,7 +2347,7 @@
     }
 
     async function fetchCompanyV1(key, previousError) {
-      const fallback = await fetchJson(`https://api.torn.com/company/?selections=employees,detailed,profile,stock&key=${encodeURIComponent(key)}`);
+      const fallback = await fetchTorn("company/?selections=employees,detailed,profile,stock", key);
       if (fallback.error) throw new Error(fallback.error.error || fallback.error.code || previousError?.message || "Torn API error");
       fallback.source = previousError ? "API v1 fallback" : "API v1";
       fallback.fields = detectLiveFields(fallback);
@@ -2181,6 +2358,20 @@
       const response = await fetch(url, { cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
+    }
+
+    async function fetchTorn(path, key) {
+      if (state.useProxy && state.proxyUrl.trim()) {
+        const base = state.proxyUrl.trim().replace(/\/$/, "");
+        const response = await fetch(`${base}/api/torn?path=${encodeURIComponent(path)}`, {
+          cache: "no-store",
+          headers: { "X-Torn-Key": key }
+        });
+        if (!response.ok) throw new Error(`Proxy HTTP ${response.status}`);
+        return response.json();
+      }
+      const separator = path.includes("?") ? "&" : "?";
+      return fetchJson(`https://api.torn.com/${path}${separator}key=${encodeURIComponent(key)}`);
     }
 
     function applyTornCompanyData(data) {
@@ -2474,6 +2665,10 @@
       const item = event.target.closest("[data-alert-id]");
       if (item) openEmployee(item.dataset.alertId);
     });
+    els.optimizerList.addEventListener("click", (event) => {
+      const item = event.target.closest("[data-alert-id]");
+      if (item) openEmployee(item.dataset.alertId);
+    });
 
     document.querySelectorAll("[data-range]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -2511,6 +2706,17 @@
     els.saveGoals.addEventListener("click", saveGoalInputs);
     els.companyPreset.value = state.companyPreset;
     els.companyPreset.addEventListener("change", () => applyCompanyPreset(els.companyPreset.value));
+    els.saveProfile.addEventListener("click", () => {
+      saveCurrentProfile(els.profileName.value || state.activeProfile);
+      els.profileName.value = "";
+      renderAll();
+    });
+    els.profileSelect.addEventListener("change", () => {
+      saveCurrentProfile(state.activeProfile);
+      state.activeProfile = els.profileSelect.value;
+      applyProfileState(state.profiles[state.activeProfile]);
+      renderAll();
+    });
     els.exportEmployees.addEventListener("click", exportEmployeesCsv);
     els.exportProfit.addEventListener("click", exportProfitCsv);
     els.exportHistory.addEventListener("click", exportHistoryCsv);
@@ -2537,6 +2743,17 @@
     els.apiInterval.addEventListener("change", () => {
       state.apiInterval = Number(els.apiInterval.value);
       renderApiStatus();
+      persist();
+    });
+    els.useProxy.checked = state.useProxy;
+    els.useProxy.addEventListener("change", () => {
+      state.useProxy = els.useProxy.checked;
+      renderApiStatus();
+      persist();
+    });
+    els.proxyUrl.value = state.proxyUrl;
+    els.proxyUrl.addEventListener("change", () => {
+      state.proxyUrl = els.proxyUrl.value.trim();
       persist();
     });
     els.realDataOnly.checked = state.realDataOnly;
