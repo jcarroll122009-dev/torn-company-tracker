@@ -463,7 +463,7 @@
 
     .breakdown-grid {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
       gap: 10px;
       padding: 14px 16px;
     }
@@ -1177,7 +1177,7 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-05-fast";
+    const appVersion = "2026-07-05-breakdown";
 
     const seedEmployees = [
       { id: 1, name: "Ash", role: "Sales Executive", stars: 5, effectiveness: 94, sales: 121, activity: 98, wage: 135000, profit: 642000, addiction: 0, merits: 18, lastSeen: "12 min ago", trains: 4, notes: "Highest customer conversion. Keep on premium rotation." },
@@ -1412,6 +1412,8 @@
           perEmployee: Number(state.latestBreakdown.perEmployee) || 0
         };
       }
+      const watch = latestSyncedWatchCompany();
+      if (watch) return breakdownFromSummary(watch.summary);
       const net = dailyDelta();
       const wages = state.employees.reduce((sum, employee) => sum + employee.wage, 0);
       const sales = Math.max(net + wages, state.employees.reduce((sum, employee) => sum + employee.profit + employee.wage, 0));
@@ -1432,14 +1434,39 @@
     }
 
     function confirmedBreakdown() {
-      if (!state.latestBreakdown || !state.apiLastSync) return null;
-      return {
+      if (state.latestBreakdown && state.apiLastSync) return {
         sales: Number(state.latestBreakdown.sales) || 0,
         wages: Number(state.latestBreakdown.wages) || 0,
         stock: Number(state.latestBreakdown.stock) || 0,
         net: Number(state.latestBreakdown.net) || 0,
         perEmployee: Number(state.latestBreakdown.perEmployee) || 0
       };
+      const watch = latestSyncedWatchCompany();
+      return watch ? breakdownFromSummary(watch.summary) : null;
+    }
+
+    function latestSyncedWatchCompany() {
+      return state.watchCompanies
+        .filter((company) => company.summary && company.lastSync)
+        .sort((a, b) => new Date(b.lastSync).getTime() - new Date(a.lastSync).getTime())[0] || null;
+    }
+
+    function breakdownFromSummary(summary) {
+      return {
+        sales: Number(summary.sales) || 0,
+        wages: Number(summary.wages) || 0,
+        stock: Number(summary.stock) || 0,
+        net: Number(summary.net) || 0,
+        perEmployee: Number(summary.perEmployee) || 0
+      };
+    }
+
+    function breakdownSourceLabel() {
+      if (state.latestBreakdown && state.apiLastSync) {
+        return state.apiMeta?.companyName || "main company";
+      }
+      const watch = latestSyncedWatchCompany();
+      return watch ? (watch.summary?.name || watch.label || "saved company") : "";
     }
 
     function companyAverages() {
@@ -1608,15 +1635,17 @@
 
     function renderMetrics() {
       const breakdown = currentBreakdown();
+      const confirmed = confirmedBreakdown();
+      const source = breakdownSourceLabel();
       const { avgEffect, avgActivity, avgAddiction } = companyAverages();
       const health = Math.max(0, Math.min(100, (avgEffect * 0.58) + (avgActivity * 0.32) - (avgAddiction * 2.2)));
       const top = [...state.employees].sort((a, b) => b.profit - a.profit)[0] || { name: "--", profit: 0 };
 
-      els.dailyProfit.textContent = state.apiLastSync ? money(breakdown.net) : "Sync API";
-      els.profitTrend.textContent = state.apiLastSync
-        ? `From Torn sync: sales ${money(breakdown.sales)}, wages ${money(breakdown.wages)}, stock ${money(breakdown.stock)}`
-        : "Waiting for real Torn data; demo history is not daily profit";
-      els.employeeCount.textContent = state.realDataOnly && !state.apiLastSync ? "Sync API" : `${state.employees.length}/10`;
+      els.dailyProfit.textContent = confirmed ? money(breakdown.net) : "Sync Company";
+      els.profitTrend.textContent = confirmed
+        ? `From ${source}: sales ${money(breakdown.sales)}, wages ${money(breakdown.wages)}, stock ${money(breakdown.stock)}`
+        : "Waiting for a main or saved company sync";
+      els.employeeCount.textContent = state.realDataOnly && !confirmed ? "Sync Company" : `${state.employees.length}/10`;
       els.bestEmployee.textContent = `Top: ${top.name} at ${money(top.profit)}`;
       els.avgEffect.textContent = pct(avgEffect);
       els.avgActivity.textContent = `Average activity ${pct(avgActivity)}`;
@@ -1625,8 +1654,9 @@
     }
 
     function renderBreakdown() {
-      if (state.realDataOnly && !state.apiLastSync) {
-        els.breakdownGrid.innerHTML = `<div class="breakdown-item"><span>Real data only</span><strong>Sync API</strong></div>`;
+      const confirmed = confirmedBreakdown();
+      if (state.realDataOnly && !confirmed) {
+        els.breakdownGrid.innerHTML = `<div class="breakdown-item"><span>Real data only</span><strong>Sync saved company</strong></div>`;
         drawBarChart(els.breakdownCanvas, [
           { label: "Sales", value: 0, color: "#68a7ff" },
           { label: "Wages", value: 0, color: "#f2c35b" },
@@ -1637,6 +1667,7 @@
         return;
       }
       const breakdown = currentBreakdown();
+      const source = breakdownSourceLabel();
       const items = [
         { label: "Sales", value: breakdown.sales, color: "#68a7ff" },
         { label: "Wages", value: breakdown.wages, color: "#f2c35b" },
@@ -1649,7 +1680,7 @@
           <span>${item.label}</span>
           <strong>${money(item.value)}</strong>
         </div>
-      `).join("");
+      `).join("") + (source ? `<div class="breakdown-item"><span>Source</span><strong>${esc(source)}</strong></div>` : "");
       drawBarChart(els.breakdownCanvas, items);
     }
 
