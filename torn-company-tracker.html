@@ -1161,9 +1161,10 @@
           <div class="api-panel">
             <h2>More Companies</h2>
             <p class="notes">Add up to 10 company API keys to compare other companies. Keys are saved only in this browser.</p>
-            <div class="api-grid">
+            <div class="api-grid three">
               <input id="watchName" type="text" placeholder="Company name or owner">
               <button class="text-button" id="addWatchCompany" type="button">Add</button>
+              <button class="text-button hidden" id="cancelWatchEdit" type="button">Cancel</button>
             </div>
             <input id="watchKey" type="password" autocomplete="off" placeholder="Torn API key for that company">
             <button class="text-button" id="syncWatchCompaniesSide" type="button">Sync All Companies</button>
@@ -1260,6 +1261,7 @@
       watchCompanies: (JSON.parse(localStorage.getItem("tcWatchCompanies") || "null") || []).slice(0, 10),
       watchSyncing: false,
       watchError: "",
+      watchEditingId: "",
       openRows: new Set(),
       range: "day",
       employeeFilter: localStorage.getItem("tcEmployeeFilter") || "all",
@@ -1331,6 +1333,7 @@
       watchName: document.getElementById("watchName"),
       watchKey: document.getElementById("watchKey"),
       addWatchCompany: document.getElementById("addWatchCompany"),
+      cancelWatchEdit: document.getElementById("cancelWatchEdit"),
       syncWatchCompanies: document.getElementById("syncWatchCompanies"),
       syncWatchCompaniesSide: document.getElementById("syncWatchCompaniesSide"),
       watchStatus: document.getElementById("watchStatus"),
@@ -2192,10 +2195,13 @@
           </div>
           <div class="panel-actions">
             <button class="text-button" data-sync-watch="${esc(company.id)}" type="button" ${state.watchSyncing ? "disabled" : ""}>Sync</button>
+            <button class="text-button" data-edit-watch="${esc(company.id)}" type="button" ${state.watchSyncing ? "disabled" : ""}>Edit</button>
             <button class="text-button" data-remove-watch="${esc(company.id)}" type="button" ${state.watchSyncing ? "disabled" : ""}>Remove</button>
           </div>
         </div>
       `).join("") : `<div class="history-item"><span>Empty</span><strong>Add a company key</strong><p>You can save up to 10 company API keys here and compare them in the watchlist panel.</p></div>`;
+      els.addWatchCompany.textContent = state.watchEditingId ? "Save" : "Add";
+      els.cancelWatchEdit.classList.toggle("hidden", !state.watchEditingId);
     }
 
     function renderWatchCompare() {
@@ -2561,20 +2567,35 @@
     function addWatchCompany() {
       const key = els.watchKey.value.trim();
       const label = els.watchName.value.trim() || `Company ${state.watchCompanies.length + 1}`;
+      const editing = state.watchCompanies.find((company) => company.id === state.watchEditingId);
       state.watchError = "";
       if (!key) {
         state.watchError = "Enter an API key for the company first.";
         renderWatchCompanies();
         return;
       }
-      if (state.watchCompanies.length >= 10) {
+      if (!editing && state.watchCompanies.length >= 10) {
         state.watchError = "You can track up to 10 extra companies at one time.";
         renderWatchCompanies();
         return;
       }
-      if (state.watchCompanies.some((company) => company.key === key)) {
+      if (state.watchCompanies.some((company) => company.key === key && company.id !== state.watchEditingId)) {
         state.watchError = "That company key is already saved.";
         renderWatchCompanies();
+        return;
+      }
+      if (editing) {
+        const keyChanged = editing.key !== key;
+        editing.label = label;
+        editing.key = key;
+        editing.error = "";
+        if (keyChanged) {
+          editing.lastSync = "";
+          editing.summary = null;
+        }
+        resetWatchEditor();
+        renderAll();
+        if (keyChanged) syncWatchCompanyById(editing.id);
         return;
       }
       const company = {
@@ -2590,6 +2611,25 @@
       els.watchKey.value = "";
       renderAll();
       syncWatchCompanyById(company.id);
+    }
+
+    function editWatchCompany(id) {
+      const company = state.watchCompanies.find((item) => item.id === id);
+      if (!company) return;
+      state.watchEditingId = company.id;
+      els.watchName.value = company.label || company.summary?.name || "";
+      els.watchKey.value = company.key || "";
+      state.watchError = "";
+      renderWatchCompanies();
+      els.watchName.focus();
+    }
+
+    function resetWatchEditor() {
+      state.watchEditingId = "";
+      els.watchName.value = "";
+      els.watchKey.value = "";
+      state.watchError = "";
+      renderWatchCompanies();
     }
 
     async function syncOneWatchCompany(company) {
@@ -3094,6 +3134,7 @@
       if (event.key === "Enter") syncTornApi();
     });
     els.addWatchCompany.addEventListener("click", addWatchCompany);
+    els.cancelWatchEdit.addEventListener("click", resetWatchEditor);
     els.watchKey.addEventListener("keydown", (event) => {
       if (event.key === "Enter") addWatchCompany();
     });
@@ -3103,9 +3144,15 @@
         syncWatchCompanyById(sync.dataset.syncWatch);
         return;
       }
+      const edit = event.target.closest("[data-edit-watch]");
+      if (edit) {
+        editWatchCompany(edit.dataset.editWatch);
+        return;
+      }
       const remove = event.target.closest("[data-remove-watch]");
       if (!remove) return;
       state.watchCompanies = state.watchCompanies.filter((company) => company.id !== remove.dataset.removeWatch);
+      if (state.watchEditingId === remove.dataset.removeWatch) resetWatchEditor();
       state.watchError = "";
       renderAll();
     });
