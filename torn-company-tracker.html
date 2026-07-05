@@ -877,7 +877,7 @@
         <p class="subtitle">Live profit chart, employee stats, click-to-expand records, and a quick reading panel.</p>
       </div>
       <div class="status-strip" aria-label="Tracker status">
-        <span class="pill"><span class="dot"></span><span id="liveStatus">Auto chart waiting for API</span></span>
+        <span class="pill"><span class="dot"></span><span id="liveStatus">Auto chart ready</span></span>
         <span class="pill" id="clock">--:--</span>
       </div>
     </header>
@@ -1480,7 +1480,7 @@
       if (!points.length) {
         ctx.fillStyle = "#9da8b7";
         ctx.font = `${13 * ratio}px Inter, system-ui, sans-serif`;
-        ctx.fillText("No chart data yet", 14 * ratio, 28 * ratio);
+        ctx.fillText("Sync a company to collect chart data", 14 * ratio, 28 * ratio);
         return;
       }
       const pad = {
@@ -2468,10 +2468,10 @@
         return;
       }
       if (state.watchCompanies.length) {
-        els.liveStatus.textContent = "Auto chart waiting for watch sync";
+        els.liveStatus.textContent = "Auto chart ready: press Sync on saved company";
         return;
       }
-      els.liveStatus.textContent = "Auto chart waiting for API";
+      els.liveStatus.textContent = "Auto chart ready: add or sync a company";
     }
 
     function renderAll() {
