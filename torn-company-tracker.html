@@ -971,6 +971,13 @@
             </div>
             <div class="history-list" id="compareList"></div>
           </section>
+
+          <section class="panel" aria-label="Data audit">
+            <div class="panel-head">
+              <h2>Data Audit</h2>
+            </div>
+            <div class="history-list" id="dataAuditList"></div>
+          </section>
         </section>
 
         <section class="panel" aria-label="API sync history">
@@ -1150,6 +1157,7 @@
       apiError: "",
       apiMeta: JSON.parse(localStorage.getItem("tcApiMeta") || "null") || null,
       apiPermissions: JSON.parse(localStorage.getItem("tcApiPermissions") || "null"),
+      fieldAudit: JSON.parse(localStorage.getItem("tcFieldAudit") || "null") || [],
       apiMode: localStorage.getItem("tcApiMode") || "auto",
       apiInterval: Number(localStorage.getItem("tcApiInterval") || 10),
       useProxy: localStorage.getItem("tcUseProxy") === "true",
@@ -1200,6 +1208,7 @@
       roleLogList: document.getElementById("roleLogList"),
       confirmedGrid: document.getElementById("confirmedGrid"),
       compareList: document.getElementById("compareList"),
+      dataAuditList: document.getElementById("dataAuditList"),
       historyList: document.getElementById("historyList"),
       miniCanvas: document.getElementById("miniCanvas"),
       readout: document.getElementById("readout"),
@@ -1993,6 +2002,17 @@
       `).join("");
     }
 
+    function renderDataAudit() {
+      const audit = state.fieldAudit || [];
+      els.dataAuditList.innerHTML = audit.length ? audit.map((item) => `
+        <div class="history-item">
+          <span>${esc(item.status)}</span>
+          <strong>${esc(item.label)}: ${typeof item.value === "number" ? money(item.value) : esc(item.value)}</strong>
+          <p>Source: ${esc(item.source)}</p>
+        </div>
+      `).join("") : `<div class="history-item"><span>No audit yet</span><strong>Sync API</strong><p>After a sync, this panel shows which metrics came from Torn fields and which were estimated.</p></div>`;
+    }
+
     function renderPermissions() {
       if (!state.apiPermissions) {
         els.permissionStatus.textContent = "API permissions not checked yet.";
@@ -2206,6 +2226,7 @@
       renderBestSetup();
       renderOptimizer();
       renderSnapshotCompare();
+      renderDataAudit();
       renderHistory();
       renderRoleLog();
       renderEmployees();
@@ -2224,6 +2245,7 @@
       localStorage.setItem("tcApiLastSync", state.apiLastSync);
       localStorage.setItem("tcApiMeta", JSON.stringify(state.apiMeta));
       localStorage.setItem("tcApiPermissions", JSON.stringify(state.apiPermissions));
+      localStorage.setItem("tcFieldAudit", JSON.stringify(state.fieldAudit));
       localStorage.setItem("tcApiMode", state.apiMode);
       localStorage.setItem("tcApiInterval", String(state.apiInterval));
       localStorage.setItem("tcUseProxy", String(state.useProxy));
@@ -2361,17 +2383,23 @@
     }
 
     async function fetchTorn(path, key) {
+      const cacheBustPath = addTimestampParam(path);
       if (state.useProxy && state.proxyUrl.trim()) {
         const base = state.proxyUrl.trim().replace(/\/$/, "");
-        const response = await fetch(`${base}/api/torn?path=${encodeURIComponent(path)}`, {
+        const response = await fetch(`${base}/api/torn?path=${encodeURIComponent(cacheBustPath)}`, {
           cache: "no-store",
           headers: { "X-Torn-Key": key }
         });
         if (!response.ok) throw new Error(`Proxy HTTP ${response.status}`);
         return response.json();
       }
+      const separator = cacheBustPath.includes("?") ? "&" : "?";
+      return fetchJson(`https://api.torn.com/${cacheBustPath}${separator}key=${encodeURIComponent(key)}`);
+    }
+
+    function addTimestampParam(path) {
       const separator = path.includes("?") ? "&" : "?";
-      return fetchJson(`https://api.torn.com/${path}${separator}key=${encodeURIComponent(key)}`);
+      return `${path}${separator}timestamp=${Date.now()}`;
     }
 
     function applyTornCompanyData(data) {
@@ -2388,8 +2416,24 @@
         state.openRows.clear();
       }
 
-      const income = numberFrom(combined.daily_income, combined.income, combined.revenue, combined.company?.daily_income, combined.profile?.daily_income, combined.income?.daily);
-      const stockCost = numberFrom(combined.daily_stock_cost, combined.stock_cost, combined.company?.daily_stock_cost, combined.profile?.daily_stock_cost, combined.stock?.daily_cost) ?? estimateStockCost(combined.stock);
+      const incomePick = pickNumber("Daily income", [
+        ["daily_income", combined.daily_income],
+        ["income", combined.income],
+        ["revenue", combined.revenue],
+        ["company.daily_income", combined.company?.daily_income],
+        ["profile.daily_income", combined.profile?.daily_income],
+        ["income.daily", combined.income?.daily]
+      ]);
+      const stockPick = pickNumber("Stock cost", [
+        ["daily_stock_cost", combined.daily_stock_cost],
+        ["stock_cost", combined.stock_cost],
+        ["company.daily_stock_cost", combined.company?.daily_stock_cost],
+        ["profile.daily_stock_cost", combined.profile?.daily_stock_cost],
+        ["stock.daily_cost", combined.stock?.daily_cost]
+      ]);
+      const estimatedStock = stockPick.value === undefined ? estimateStockCost(combined.stock) : undefined;
+      const income = incomePick.value;
+      const stockCost = stockPick.value ?? estimatedStock;
       const wages = state.employees.reduce((sum, employee) => sum + employee.wage, 0);
       const liveDelta = Number.isFinite(income) ? income - (Number.isFinite(stockCost) ? stockCost : 0) - wages : state.employees.reduce((sum, employee) => sum + employee.profit, 0);
       const last = state.profits[state.profits.length - 1]?.value || 0;
@@ -2400,8 +2444,22 @@
         wages,
         stock: Number.isFinite(stockCost) ? stockCost : Math.round(Math.max(0, liveDelta + wages) * 0.22),
         net: liveDelta,
-        perEmployee: state.employees.length ? liveDelta / state.employees.length : 0
+        perEmployee: state.employees.length ? liveDelta / state.employees.length : 0,
+        sources: {
+          sales: incomePick.source || "estimated from employee profit + wage",
+          wages: "sum(employee.wage)",
+          stock: stockPick.source || (estimatedStock !== undefined ? "estimated from stock item values" : "fallback percentage estimate"),
+          net: Number.isFinite(income) ? "income - stock - wages" : "sum(employee.profit)"
+        }
       };
+      state.fieldAudit = [
+        { label: "Employees", status: employeeList.length ? "confirmed" : "missing", source: "company employees", value: employeeList.length || 0 },
+        { label: "Daily income", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: incomePick.source || "not returned", value: incomePick.value ?? state.latestBreakdown.sales },
+        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : estimatedStock !== undefined ? "estimated" : "fallback", source: stockPick.source || (estimatedStock !== undefined ? "stock item estimate" : "not returned"), value: state.latestBreakdown.stock },
+        { label: "Wages", status: wages ? "confirmed" : "missing", source: "sum employee wages", value: wages },
+        { label: "Daily net", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: state.latestBreakdown.sources.net, value: liveDelta },
+        { label: "Cache", status: "info", source: "timestamp query added", value: new Date().toLocaleTimeString() }
+      ];
       state.apiMeta = {
         source: data.source || "Torn API",
         fields: data.fields || detectLiveFields(combined),
@@ -2489,6 +2547,14 @@
         if (Number.isFinite(number)) return number;
       }
       return undefined;
+    }
+
+    function pickNumber(label, candidates) {
+      for (const [source, value] of candidates) {
+        const number = Number(value);
+        if (Number.isFinite(number)) return { label, source, value: number };
+      }
+      return { label, source: "", value: undefined };
     }
 
     function saveGoalInputs() {

@@ -53,6 +53,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 function isAllowedTornPath(path) {
+  const cleanPath = stripAllowedQueryNoise(path);
   return [
     "v2/key/info",
     "v2/company/profile",
@@ -60,7 +61,16 @@ function isAllowedTornPath(path) {
     "v2/company/stock",
     "v2/company/timestamp",
     "company/?selections=employees,detailed,profile,stock"
-  ].includes(path);
+  ].includes(cleanPath);
+}
+
+function stripAllowedQueryNoise(path) {
+  const [base, query = ""] = path.split("?");
+  if (!query) return base;
+  const params = new URLSearchParams(query);
+  params.delete("timestamp");
+  const cleanQuery = params.toString();
+  return cleanQuery ? `${base}?${cleanQuery}` : base;
 }
 
 function setCors(res) {
