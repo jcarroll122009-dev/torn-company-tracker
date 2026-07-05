@@ -1231,7 +1231,7 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-05-fifty-companies";
+    const appVersion = "2026-07-05-live-watch-companies";
     const maxWatchCompanies = 50;
 
     const seedEmployees = [
@@ -1321,6 +1321,7 @@
       watchError: "",
       watchEditingId: "",
       watchSyncProgress: "",
+      lastWatchAutoSyncAttempt: 0,
       persistQueued: false,
       lastPersistSnapshot: "",
       openRows: new Set(),
@@ -2328,7 +2329,8 @@
       });
       els.watchStatus.classList.toggle("bad", Boolean(state.watchError));
       els.watchStatus.classList.toggle("good", !state.watchError && count > 0);
-      els.watchStatus.textContent = state.watchError || state.watchSyncProgress || `${count}/${maxWatchCompanies} extra companies saved.${count ? " Press Sync All Companies to refresh them." : ""}`;
+      const liveNote = state.live && state.apiInterval ? ` Live auto-sync refreshes due companies on the ${state.apiInterval} min interval.` : "";
+      els.watchStatus.textContent = state.watchError || state.watchSyncProgress || `${count}/${maxWatchCompanies} extra companies saved.${count ? " Press Sync All Companies to refresh them now." + liveNote : ""}`;
       els.watchList.innerHTML = count ? state.watchCompanies.map((company) => `
         <div class="history-item watchlist-item">
           <div>
@@ -2715,14 +2717,15 @@
         return;
       }
       if (state.apiKey) {
+        const extra = state.watchCompanies.length ? ` + ${state.watchCompanies.length} extra` : "";
         els.liveStatus.textContent = state.apiInterval
-          ? `Auto chart: API every ${state.apiInterval} min`
+          ? `Auto chart: API every ${state.apiInterval} min${extra}`
           : "Auto chart ready: auto-sync off";
         return;
       }
-      const syncedWatch = state.watchCompanies.filter((company) => company.summary).length;
-      if (syncedWatch) {
-        els.liveStatus.textContent = `Auto chart: ${syncedWatch} watch company sync${syncedWatch === 1 ? "" : "s"}`;
+      if (state.watchCompanies.length && state.apiInterval) {
+        const syncedWatch = state.watchCompanies.filter((company) => company.summary).length;
+        els.liveStatus.textContent = `Auto chart: ${syncedWatch}/${state.watchCompanies.length} extra companies live`;
         return;
       }
       if (state.watchCompanies.length) {
@@ -3016,6 +3019,40 @@
       state.watchSyncProgress = "";
       state.watchError = failures ? `${failures} company sync${failures === 1 ? "" : "s"} failed. Check the saved keys and company permissions.` : "";
       renderAll();
+    }
+
+    async function maybeAutoSyncWatchCompanies(force = false) {
+      if (!state.live || !state.apiInterval || !state.watchCompanies.length || state.watchSyncing) return;
+      const now = Date.now();
+      const intervalMs = state.apiInterval * 60 * 1000;
+      if (!force && now - state.lastWatchAutoSyncAttempt < 15 * 1000) return;
+      const dueCompanies = state.watchCompanies
+        .filter((company) => {
+          if (company.error && !force) return false;
+          if (!company.lastSync) return true;
+          return now - new Date(company.lastSync).getTime() >= intervalMs;
+        })
+        .sort((a, b) => {
+          const aTime = a.lastSync ? new Date(a.lastSync).getTime() : 0;
+          const bTime = b.lastSync ? new Date(b.lastSync).getTime() : 0;
+          return aTime - bTime;
+        });
+      const company = dueCompanies[0];
+      if (!company) return;
+      state.lastWatchAutoSyncAttempt = now;
+      state.watchSyncing = true;
+      state.watchError = "";
+      state.watchSyncProgress = `Live syncing ${company.label || company.summary?.name || "company"}...`;
+      renderWatchCompanies();
+      try {
+        await syncOneWatchCompany(company);
+      } catch (error) {
+        company.error = error.message || "Auto sync failed";
+      } finally {
+        state.watchSyncing = false;
+        state.watchSyncProgress = "";
+        renderAll();
+      }
     }
 
     async function checkKey(key) {
@@ -3595,6 +3632,7 @@
       updateLiveStatus();
       persist();
       if (state.live && state.apiKey) maybeAutoSync(true);
+      if (state.live) maybeAutoSyncWatchCompanies(true);
     });
     els.resetData.addEventListener("click", () => {
       state.employees = JSON.parse(JSON.stringify(seedEmployees));
@@ -3658,6 +3696,7 @@
     setInterval(updateClock, 1000);
     setInterval(() => {
       maybeAutoSync();
+      maybeAutoSyncWatchCompanies();
     }, 15 * 1000);
   </script>
 </body>
