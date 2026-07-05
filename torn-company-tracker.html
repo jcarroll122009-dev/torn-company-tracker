@@ -549,6 +549,77 @@
       font-size: 0.9rem;
     }
 
+    .watchlist-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .watchlist-item .text-button {
+      min-height: 32px;
+      padding: 0 10px;
+    }
+
+    .watch-compare {
+      display: grid;
+      gap: 10px;
+      padding: 14px 16px;
+    }
+
+    .watch-compare-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(17, 20, 25, 0.88);
+      padding: 12px;
+    }
+
+    .watch-compare-top {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .watch-compare-top span {
+      color: var(--muted);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+    }
+
+    .watch-compare-top strong {
+      display: block;
+      margin-top: 5px;
+      font-size: 1.12rem;
+    }
+
+    .watch-compare-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .watch-compare-grid div {
+      border: 1px solid rgba(52, 59, 70, 0.75);
+      border-radius: 7px;
+      padding: 8px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .watch-compare-grid span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+    }
+
+    .watch-compare-grid strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 0.92rem;
+    }
+
     .export-row {
       display: flex;
       flex-wrap: wrap;
@@ -759,7 +830,8 @@
       }
 
       .dashboard-grid,
-      .breakdown-grid {
+      .breakdown-grid,
+      .watch-compare-grid {
         grid-template-columns: 1fr;
       }
     }
@@ -876,6 +948,16 @@
           <div class="breakdown-chart">
             <canvas id="breakdownCanvas" aria-label="Sales wages stock cost and net profit chart"></canvas>
           </div>
+        </section>
+
+        <section class="panel" aria-label="Multi company comparison">
+          <div class="panel-head">
+            <h2>Company Watchlist</h2>
+            <div class="panel-actions">
+              <button class="text-button" id="syncWatchCompanies" type="button">Sync All</button>
+            </div>
+          </div>
+          <div class="watch-compare" id="watchCompare"></div>
         </section>
 
         <section class="dashboard-grid" aria-label="Company manager panels">
@@ -1089,6 +1171,17 @@
               <button class="text-button" id="loadJson" type="button">Load</button>
             </div>
           </div>
+          <div class="api-panel">
+            <h2>More Companies</h2>
+            <p class="notes">Add up to 10 company API keys to compare other companies. Keys are saved only in this browser.</p>
+            <div class="api-grid">
+              <input id="watchName" type="text" placeholder="Company name or owner">
+              <button class="text-button" id="addWatchCompany" type="button">Add</button>
+            </div>
+            <input id="watchKey" type="password" autocomplete="off" placeholder="Torn API key for that company">
+            <div class="api-status" id="watchStatus">No extra companies added yet.</div>
+            <div class="history-list" id="watchList"></div>
+          </div>
         </div>
       </aside>
     </section>
@@ -1176,6 +1269,9 @@
       },
       syncHistory: JSON.parse(localStorage.getItem("tcSyncHistory") || "null") || [],
       roleChanges: JSON.parse(localStorage.getItem("tcRoleChanges") || "null") || [],
+      watchCompanies: (JSON.parse(localStorage.getItem("tcWatchCompanies") || "null") || []).slice(0, 10),
+      watchSyncing: false,
+      watchError: "",
       openRows: new Set(),
       range: "day",
       employeeFilter: localStorage.getItem("tcEmployeeFilter") || "all",
@@ -1209,6 +1305,7 @@
       confirmedGrid: document.getElementById("confirmedGrid"),
       compareList: document.getElementById("compareList"),
       dataAuditList: document.getElementById("dataAuditList"),
+      watchCompare: document.getElementById("watchCompare"),
       historyList: document.getElementById("historyList"),
       miniCanvas: document.getElementById("miniCanvas"),
       readout: document.getElementById("readout"),
@@ -1247,6 +1344,12 @@
       dataQuality: document.getElementById("dataQuality"),
       jsonInput: document.getElementById("jsonInput"),
       loadJson: document.getElementById("loadJson"),
+      watchName: document.getElementById("watchName"),
+      watchKey: document.getElementById("watchKey"),
+      addWatchCompany: document.getElementById("addWatchCompany"),
+      syncWatchCompanies: document.getElementById("syncWatchCompanies"),
+      watchStatus: document.getElementById("watchStatus"),
+      watchList: document.getElementById("watchList"),
       clearFilters: document.getElementById("clearFilters")
     };
 
@@ -1361,10 +1464,17 @@
       if (!state.employees.length) {
         return { avgEffect: 0, avgActivity: 0, avgAddiction: 0, wages: 0 };
       }
-      const avgEffect = state.employees.reduce((sum, employee) => sum + employee.effectiveness, 0) / state.employees.length;
-      const avgActivity = state.employees.reduce((sum, employee) => sum + employee.activity, 0) / state.employees.length;
-      const avgAddiction = state.employees.reduce((sum, employee) => sum + employee.addiction, 0) / state.employees.length;
-      const wages = state.employees.reduce((sum, employee) => sum + employee.wage, 0);
+      return companyAveragesFor(state.employees);
+    }
+
+    function companyAveragesFor(employees) {
+      if (!employees.length) {
+        return { avgEffect: 0, avgActivity: 0, avgAddiction: 0, wages: 0 };
+      }
+      const avgEffect = employees.reduce((sum, employee) => sum + employee.effectiveness, 0) / employees.length;
+      const avgActivity = employees.reduce((sum, employee) => sum + employee.activity, 0) / employees.length;
+      const avgAddiction = employees.reduce((sum, employee) => sum + employee.addiction, 0) / employees.length;
+      const wages = employees.reduce((sum, employee) => sum + employee.wage, 0);
       return { avgEffect, avgActivity, avgAddiction, wages };
     }
 
@@ -2013,6 +2123,146 @@
       `).join("") : `<div class="history-item"><span>No audit yet</span><strong>Sync API</strong><p>After a sync, this panel shows which metrics came from Torn fields and which were estimated.</p></div>`;
     }
 
+    function maskKey(key) {
+      if (!key) return "";
+      return key.length <= 6 ? "Saved key" : `...${key.slice(-6)}`;
+    }
+
+    function companyNameFromData(data, fallback) {
+      const combined = flattenCompanyPayload(data);
+      return combined.name || combined.profile?.name || combined.company?.name || fallback || "Company";
+    }
+
+    function summarizeCompanyData(data, fallbackName = "Company") {
+      const combined = flattenCompanyPayload(data);
+      const employeesSource = combined.employees || combined.company_employees || combined.employee_list || {};
+      const employeeList = Array.isArray(employeesSource)
+        ? employeesSource
+        : Object.entries(employeesSource).map(([id, employee]) => ({ id, ...employee }));
+      const employees = employeeList.map((employee, index) => normalizeTornEmployee(employee, index, new Map()));
+      const incomePick = pickNumber("Daily income", [
+        ["daily_income", combined.daily_income],
+        ["income", combined.income],
+        ["revenue", combined.revenue],
+        ["company.daily_income", combined.company?.daily_income],
+        ["profile.daily_income", combined.profile?.daily_income],
+        ["income.daily", combined.income?.daily]
+      ]);
+      const stockPick = pickNumber("Stock cost", [
+        ["daily_stock_cost", combined.daily_stock_cost],
+        ["stock_cost", combined.stock_cost],
+        ["company.daily_stock_cost", combined.company?.daily_stock_cost],
+        ["profile.daily_stock_cost", combined.profile?.daily_stock_cost],
+        ["stock.daily_cost", combined.stock?.daily_cost]
+      ]);
+      const estimatedStock = stockPick.value === undefined ? estimateStockCost(combined.stock) : undefined;
+      const stockCost = stockPick.value ?? estimatedStock ?? 0;
+      const wages = employees.reduce((sum, employee) => sum + employee.wage, 0);
+      const employeeProfit = employees.reduce((sum, employee) => sum + employee.profit, 0);
+      const net = Number.isFinite(incomePick.value) ? incomePick.value - stockCost - wages : employeeProfit;
+      const sales = Number.isFinite(incomePick.value)
+        ? incomePick.value
+        : employees.reduce((sum, employee) => sum + employee.profit + employee.wage, 0);
+      const averages = companyAveragesFor(employees);
+      const health = Math.max(0, Math.min(100, (averages.avgEffect * 0.58) + (averages.avgActivity * 0.32) - (averages.avgAddiction * 2.2)));
+      const alertCount = employees.filter((employee) => (
+        employee.activity < state.goals.minActivity ||
+        employee.addiction >= 4 ||
+        employee.effectiveness < state.goals.avgEffect - 10 ||
+        employee.profit < 0
+      )).length;
+      const audit = [
+        { label: "Employees", status: employeeList.length ? "confirmed" : "missing", source: "company employees", value: employeeList.length || 0 },
+        { label: "Daily income", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: incomePick.source || "not returned", value: incomePick.value ?? sales },
+        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : estimatedStock !== undefined ? "estimated" : "fallback", source: stockPick.source || (estimatedStock !== undefined ? "stock item estimate" : "not returned"), value: stockCost },
+        { label: "Wages", status: wages ? "confirmed" : "missing", source: "sum employee wages", value: wages },
+        { label: "Daily net", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: Number.isFinite(incomePick.value) ? "income - stock - wages" : "sum(employee.profit)", value: net }
+      ];
+      const confirmed = audit.filter((item) => item.status === "confirmed").length;
+      return {
+        name: companyNameFromData(data, fallbackName),
+        source: data.source || "Torn API",
+        fields: data.fields || detectLiveFields(combined),
+        employees: employees.length,
+        sales,
+        wages,
+        stock: stockCost,
+        net,
+        perEmployee: employees.length ? net / employees.length : 0,
+        avgEffect: averages.avgEffect,
+        avgActivity: averages.avgActivity,
+        health,
+        alertCount,
+        confidence: Math.round((confirmed / audit.length) * 100),
+        audit
+      };
+    }
+
+    function renderWatchCompanies() {
+      const count = state.watchCompanies.length;
+      els.syncWatchCompanies.disabled = state.watchSyncing || !count;
+      els.syncWatchCompanies.textContent = state.watchSyncing ? "Syncing" : "Sync All";
+      els.watchStatus.classList.toggle("bad", Boolean(state.watchError));
+      els.watchStatus.classList.toggle("good", !state.watchError && count > 0);
+      els.watchStatus.textContent = state.watchError || `${count}/10 extra companies saved.${count ? " Press Sync All to refresh them." : ""}`;
+      els.watchList.innerHTML = count ? state.watchCompanies.map((company) => `
+        <div class="history-item watchlist-item">
+          <div>
+            <span>${company.lastSync ? new Date(company.lastSync).toLocaleString() : "Not synced"}</span>
+            <strong>${esc(company.summary?.name || company.label)} (${esc(maskKey(company.key))})</strong>
+            <p>${company.error ? esc(company.error) : company.summary ? `${money(company.summary.net)} net, ${company.summary.employees} employees, ${pct(company.summary.confidence)} data confidence.` : "Waiting for first sync."}</p>
+          </div>
+          <button class="text-button" data-remove-watch="${esc(company.id)}" type="button">Remove</button>
+        </div>
+      `).join("") : `<div class="history-item"><span>Empty</span><strong>Add a company key</strong><p>You can save up to 10 company API keys here and compare them in the watchlist panel.</p></div>`;
+    }
+
+    function renderWatchCompare() {
+      const current = state.apiLastSync ? [{
+        id: "current",
+        label: state.apiMeta?.companyName || "Current tracker",
+        summary: {
+          name: state.apiMeta?.companyName || "Current tracker",
+          source: state.apiMeta?.source || "Current tracker",
+          fields: state.apiMeta?.fields || [],
+          ...currentBreakdown(),
+          employees: state.employees.length,
+          ...companyAverages(),
+          health: Math.max(0, Math.min(100, (companyAverages().avgEffect * 0.58) + (companyAverages().avgActivity * 0.32) - (companyAverages().avgAddiction * 2.2))),
+          alertCount: state.employees.filter(needsAttention).length,
+          confidence: state.fieldAudit?.length ? Math.round((state.fieldAudit.filter((item) => item.status === "confirmed").length / state.fieldAudit.length) * 100) : 0
+        }
+      }] : [];
+      const synced = state.watchCompanies.filter((company) => company.summary);
+      const entries = [...current, ...synced].sort((a, b) => b.summary.net - a.summary.net);
+      els.watchCompare.innerHTML = entries.length ? entries.map((company, index) => {
+        const summary = company.summary;
+        const rank = index === 0 ? "Best net" : `#${index + 1}`;
+        return `
+          <div class="watch-compare-card">
+            <div class="watch-compare-top">
+              <div>
+                <span>${esc(rank)} / ${esc(summary.source)}</span>
+                <strong>${esc(summary.name || company.label)}</strong>
+              </div>
+              <strong class="delta ${summary.net >= 0 ? "good" : "bad"}">${money(summary.net)}</strong>
+            </div>
+            <div class="watch-compare-grid">
+              <div><span>Employees</span><strong>${summary.employees}</strong></div>
+              <div><span>Per employee</span><strong>${money(summary.perEmployee)}</strong></div>
+              <div><span>Effectiveness</span><strong>${pct(summary.avgEffect)}</strong></div>
+              <div><span>Activity</span><strong>${pct(summary.avgActivity)}</strong></div>
+              <div><span>Sales</span><strong>${money(summary.sales)}</strong></div>
+              <div><span>Wages</span><strong>${money(summary.wages)}</strong></div>
+              <div><span>Stock</span><strong>${money(summary.stock)}</strong></div>
+              <div><span>Confidence</span><strong>${pct(summary.confidence)}</strong></div>
+            </div>
+            <p class="notes">${summary.alertCount} workers need attention. Fields: ${summary.fields?.length ? esc(summary.fields.join(", ")) : "limited response"}.</p>
+          </div>
+        `;
+      }).join("") : `<div class="history-item"><span>No company comparison yet</span><strong>Add up to 10 API keys</strong><p>Add company keys in the More Companies panel, then press Sync All.</p></div>`;
+    }
+
     function renderPermissions() {
       if (!state.apiPermissions) {
         els.permissionStatus.textContent = "API permissions not checked yet.";
@@ -2227,6 +2477,8 @@
       renderOptimizer();
       renderSnapshotCompare();
       renderDataAudit();
+      renderWatchCompare();
+      renderWatchCompanies();
       renderHistory();
       renderRoleLog();
       renderEmployees();
@@ -2256,6 +2508,7 @@
       localStorage.setItem("tcGoals", JSON.stringify(state.goals));
       localStorage.setItem("tcSyncHistory", JSON.stringify(state.syncHistory.slice(-50)));
       localStorage.setItem("tcRoleChanges", JSON.stringify(state.roleChanges.slice(-40)));
+      localStorage.setItem("tcWatchCompanies", JSON.stringify(state.watchCompanies.slice(0, 10)));
       localStorage.setItem("tcEmployeeFilter", state.employeeFilter);
       localStorage.setItem("tcProfiles", JSON.stringify(state.profiles));
       localStorage.setItem("tcActiveProfile", state.activeProfile);
@@ -2329,6 +2582,65 @@
         els.syncApi.disabled = false;
         els.syncApi.textContent = "Sync";
       }
+    }
+
+    function addWatchCompany() {
+      const key = els.watchKey.value.trim();
+      const label = els.watchName.value.trim() || `Company ${state.watchCompanies.length + 1}`;
+      state.watchError = "";
+      if (!key) {
+        state.watchError = "Enter an API key for the company first.";
+        renderWatchCompanies();
+        return;
+      }
+      if (state.watchCompanies.length >= 10) {
+        state.watchError = "You can track up to 10 extra companies at one time.";
+        renderWatchCompanies();
+        return;
+      }
+      if (state.watchCompanies.some((company) => company.key === key)) {
+        state.watchError = "That company key is already saved.";
+        renderWatchCompanies();
+        return;
+      }
+      state.watchCompanies.push({
+        id: String(Date.now()) + Math.random().toString(16).slice(2),
+        label,
+        key,
+        lastSync: "",
+        error: "",
+        summary: null
+      });
+      els.watchName.value = "";
+      els.watchKey.value = "";
+      renderAll();
+    }
+
+    async function syncOneWatchCompany(company) {
+      company.error = "";
+      const data = await fetchLiveCompanyData(company.key);
+      company.summary = summarizeCompanyData(data, company.label);
+      company.lastSync = new Date().toISOString();
+    }
+
+    async function syncWatchCompanies() {
+      if (!state.watchCompanies.length || state.watchSyncing) return;
+      state.watchSyncing = true;
+      state.watchError = "";
+      renderWatchCompanies();
+      let failures = 0;
+      for (const company of state.watchCompanies.slice(0, 10)) {
+        try {
+          await syncOneWatchCompany(company);
+        } catch (error) {
+          failures += 1;
+          company.error = error.message || "Sync failed";
+        }
+        renderWatchCompanies();
+      }
+      state.watchSyncing = false;
+      state.watchError = failures ? `${failures} company sync${failures === 1 ? "" : "s"} failed. Check the saved keys and company permissions.` : "";
+      renderAll();
     }
 
     async function checkKey(key) {
@@ -2794,6 +3106,18 @@
     els.apiKeyInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") syncTornApi();
     });
+    els.addWatchCompany.addEventListener("click", addWatchCompany);
+    els.watchKey.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") addWatchCompany();
+    });
+    els.watchList.addEventListener("click", (event) => {
+      const remove = event.target.closest("[data-remove-watch]");
+      if (!remove) return;
+      state.watchCompanies = state.watchCompanies.filter((company) => company.id !== remove.dataset.removeWatch);
+      state.watchError = "";
+      renderAll();
+    });
+    els.syncWatchCompanies.addEventListener("click", syncWatchCompanies);
     els.apiKeyInput.addEventListener("change", () => {
       state.apiKey = els.apiKeyInput.value.trim();
       state.apiError = "";
