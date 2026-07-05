@@ -1177,6 +1177,8 @@
   </main>
 
   <script>
+    const appVersion = "2026-07-05-fast";
+
     const seedEmployees = [
       { id: 1, name: "Ash", role: "Sales Executive", stars: 5, effectiveness: 94, sales: 121, activity: 98, wage: 135000, profit: 642000, addiction: 0, merits: 18, lastSeen: "12 min ago", trains: 4, notes: "Highest customer conversion. Keep on premium rotation." },
       { id: 2, name: "Viper", role: "Manager", stars: 5, effectiveness: 91, sales: 73, activity: 94, wage: 190000, profit: 438000, addiction: 1, merits: 22, lastSeen: "28 min ago", trains: 3, notes: "Strong leadership bonus. Watch wage creep this week." },
@@ -1262,6 +1264,9 @@
       watchSyncing: false,
       watchError: "",
       watchEditingId: "",
+      watchSyncProgress: "",
+      persistQueued: false,
+      lastPersistSnapshot: "",
       openRows: new Set(),
       range: "day",
       employeeFilter: localStorage.getItem("tcEmployeeFilter") || "all",
@@ -2185,7 +2190,7 @@
       });
       els.watchStatus.classList.toggle("bad", Boolean(state.watchError));
       els.watchStatus.classList.toggle("good", !state.watchError && count > 0);
-      els.watchStatus.textContent = state.watchError || `${count}/10 extra companies saved.${count ? " Press Sync All Companies to refresh them." : ""}`;
+      els.watchStatus.textContent = state.watchError || state.watchSyncProgress || `${count}/10 extra companies saved.${count ? " Press Sync All Companies to refresh them." : ""}`;
       els.watchList.innerHTML = count ? state.watchCompanies.map((company) => `
         <div class="history-item watchlist-item">
           <div>
@@ -2502,29 +2507,43 @@
     }
 
     function persist() {
-      localStorage.setItem("tcEmployees", JSON.stringify(state.employees));
-      localStorage.setItem("tcProfits", JSON.stringify(state.profits.filter((point) => point.type?.startsWith("api")).slice(-180)));
-      localStorage.setItem("tcSelected", String(state.selectedId));
-      localStorage.setItem("tcApiKey", state.apiKey);
-      localStorage.setItem("tcApiLastSync", state.apiLastSync);
-      localStorage.setItem("tcApiMeta", JSON.stringify(state.apiMeta));
-      localStorage.setItem("tcApiPermissions", JSON.stringify(state.apiPermissions));
-      localStorage.setItem("tcFieldAudit", JSON.stringify(state.fieldAudit));
-      localStorage.setItem("tcApiMode", state.apiMode);
-      localStorage.setItem("tcApiInterval", String(state.apiInterval));
-      localStorage.setItem("tcUseProxy", String(state.useProxy));
-      localStorage.setItem("tcProxyUrl", state.proxyUrl);
-      localStorage.setItem("tcRealDataOnly", String(state.realDataOnly));
-      localStorage.setItem("tcChartAuto", String(state.live));
-      localStorage.setItem("tcCompanyPreset", state.companyPreset);
-      localStorage.setItem("tcLatestBreakdown", JSON.stringify(state.latestBreakdown));
-      localStorage.setItem("tcGoals", JSON.stringify(state.goals));
-      localStorage.setItem("tcSyncHistory", JSON.stringify(state.syncHistory.slice(-50)));
-      localStorage.setItem("tcRoleChanges", JSON.stringify(state.roleChanges.slice(-40)));
-      localStorage.setItem("tcWatchCompanies", JSON.stringify(state.watchCompanies.slice(0, 10)));
-      localStorage.setItem("tcEmployeeFilter", state.employeeFilter);
-      localStorage.setItem("tcProfiles", JSON.stringify(state.profiles));
-      localStorage.setItem("tcActiveProfile", state.activeProfile);
+      if (state.persistQueued) return;
+      state.persistQueued = true;
+      const run = window.requestIdleCallback || ((callback) => setTimeout(callback, 80));
+      run(persistNow);
+    }
+
+    function persistNow() {
+      state.persistQueued = false;
+      const payload = {
+        tcEmployees: JSON.stringify(state.employees),
+        tcProfits: JSON.stringify(state.profits.filter((point) => point.type?.startsWith("api")).slice(-180)),
+        tcSelected: String(state.selectedId),
+        tcApiKey: state.apiKey,
+        tcApiLastSync: state.apiLastSync,
+        tcApiMeta: JSON.stringify(state.apiMeta),
+        tcApiPermissions: JSON.stringify(state.apiPermissions),
+        tcFieldAudit: JSON.stringify(state.fieldAudit),
+        tcApiMode: state.apiMode,
+        tcApiInterval: String(state.apiInterval),
+        tcUseProxy: String(state.useProxy),
+        tcProxyUrl: state.proxyUrl,
+        tcRealDataOnly: String(state.realDataOnly),
+        tcChartAuto: String(state.live),
+        tcCompanyPreset: state.companyPreset,
+        tcLatestBreakdown: JSON.stringify(state.latestBreakdown),
+        tcGoals: JSON.stringify(state.goals),
+        tcSyncHistory: JSON.stringify(state.syncHistory.slice(-50)),
+        tcRoleChanges: JSON.stringify(state.roleChanges.slice(-40)),
+        tcWatchCompanies: JSON.stringify(state.watchCompanies.slice(0, 10)),
+        tcEmployeeFilter: state.employeeFilter,
+        tcProfiles: JSON.stringify(state.profiles),
+        tcActiveProfile: state.activeProfile
+      };
+      const snapshot = JSON.stringify(payload);
+      if (snapshot === state.lastPersistSnapshot) return;
+      state.lastPersistSnapshot = snapshot;
+      Object.entries(payload).forEach(([key, value]) => localStorage.setItem(key, value));
     }
 
     function addHistorySnapshot(source) {
@@ -2668,6 +2687,7 @@
       if (!company) return;
       state.watchSyncing = true;
       state.watchError = "";
+      state.watchSyncProgress = `Syncing ${company.label || company.summary?.name || "company"}...`;
       company.error = "";
       renderWatchCompanies();
       try {
@@ -2677,6 +2697,7 @@
         state.watchError = "Company sync failed. Check that key has company permissions.";
       } finally {
         state.watchSyncing = false;
+        state.watchSyncProgress = "";
         renderAll();
       }
     }
@@ -2685,9 +2706,13 @@
       if (!state.watchCompanies.length || state.watchSyncing) return;
       state.watchSyncing = true;
       state.watchError = "";
+      state.watchSyncProgress = "";
       renderWatchCompanies();
       let failures = 0;
-      for (const company of state.watchCompanies.slice(0, 10)) {
+      const companies = state.watchCompanies.slice(0, 10);
+      for (const [index, company] of companies.entries()) {
+        state.watchSyncProgress = `Syncing ${index + 1}/${companies.length}: ${company.label || company.summary?.name || "company"}`;
+        renderWatchCompanies();
         try {
           await syncOneWatchCompany(company);
         } catch (error) {
@@ -2697,6 +2722,7 @@
         renderWatchCompanies();
       }
       state.watchSyncing = false;
+      state.watchSyncProgress = "";
       state.watchError = failures ? `${failures} company sync${failures === 1 ? "" : "s"} failed. Check the saved keys and company permissions.` : "";
       renderAll();
     }
@@ -3053,6 +3079,24 @@
       els.clock.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     }
 
+    function normalizeUrlVersion() {
+      if (!location.search.includes("v=") || location.search.includes(`v=${appVersion}`)) return;
+      const url = new URL(location.href);
+      url.searchParams.set("v", appVersion);
+      history.replaceState(null, "", url.toString());
+    }
+
+    let resizeFrame = 0;
+    function scheduleResizeRender() {
+      if (resizeFrame) return;
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0;
+        renderChart();
+        renderBreakdown();
+        renderSidePanel();
+      });
+    }
+
     els.employeeBody.addEventListener("click", (event) => {
       const roleChange = event.target.closest("[data-role-change-id]");
       if (roleChange) {
@@ -3281,12 +3325,10 @@
       }
     });
 
-    window.addEventListener("resize", () => {
-      renderChart();
-      renderBreakdown();
-      renderSidePanel();
-    });
+    window.addEventListener("resize", scheduleResizeRender);
+    window.addEventListener("beforeunload", persistNow);
 
+    normalizeUrlVersion();
     updateClock();
     setupMobileCollapsers();
     renderAll();
