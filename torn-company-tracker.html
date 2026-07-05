@@ -2190,7 +2190,10 @@
             <strong>${esc(company.summary?.name || company.label)} (${esc(maskKey(company.key))})</strong>
             <p>${company.error ? esc(company.error) : company.summary ? `${money(company.summary.net)} net, ${company.summary.employees} employees, ${pct(company.summary.confidence)} data confidence.` : "Waiting for first sync."}</p>
           </div>
-          <button class="text-button" data-remove-watch="${esc(company.id)}" type="button">Remove</button>
+          <div class="panel-actions">
+            <button class="text-button" data-sync-watch="${esc(company.id)}" type="button" ${state.watchSyncing ? "disabled" : ""}>Sync</button>
+            <button class="text-button" data-remove-watch="${esc(company.id)}" type="button" ${state.watchSyncing ? "disabled" : ""}>Remove</button>
+          </div>
         </div>
       `).join("") : `<div class="history-item"><span>Empty</span><strong>Add a company key</strong><p>You can save up to 10 company API keys here and compare them in the watchlist panel.</p></div>`;
     }
@@ -2574,17 +2577,19 @@
         renderWatchCompanies();
         return;
       }
-      state.watchCompanies.push({
+      const company = {
         id: String(Date.now()) + Math.random().toString(16).slice(2),
         label,
         key,
         lastSync: "",
         error: "",
         summary: null
-      });
+      };
+      state.watchCompanies.push(company);
       els.watchName.value = "";
       els.watchKey.value = "";
       renderAll();
+      syncWatchCompanyById(company.id);
     }
 
     async function syncOneWatchCompany(company) {
@@ -2592,6 +2597,25 @@
       const data = await fetchLiveCompanyData(company.key);
       company.summary = summarizeCompanyData(data, company.label);
       company.lastSync = new Date().toISOString();
+    }
+
+    async function syncWatchCompanyById(id) {
+      if (state.watchSyncing) return;
+      const company = state.watchCompanies.find((item) => item.id === id);
+      if (!company) return;
+      state.watchSyncing = true;
+      state.watchError = "";
+      company.error = "";
+      renderWatchCompanies();
+      try {
+        await syncOneWatchCompany(company);
+      } catch (error) {
+        company.error = error.message || "Sync failed";
+        state.watchError = "Company sync failed. Check that key has company permissions.";
+      } finally {
+        state.watchSyncing = false;
+        renderAll();
+      }
     }
 
     async function syncWatchCompanies() {
@@ -3074,6 +3098,11 @@
       if (event.key === "Enter") addWatchCompany();
     });
     els.watchList.addEventListener("click", (event) => {
+      const sync = event.target.closest("[data-sync-watch]");
+      if (sync) {
+        syncWatchCompanyById(sync.dataset.syncWatch);
+        return;
+      }
       const remove = event.target.closest("[data-remove-watch]");
       if (!remove) return;
       state.watchCompanies = state.watchCompanies.filter((company) => company.id !== remove.dataset.removeWatch);
