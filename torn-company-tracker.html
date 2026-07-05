@@ -1231,7 +1231,7 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-05-live-watch-companies";
+    const appVersion = "2026-07-05-watch-timer-start";
     const maxWatchCompanies = 50;
 
     const seedEmployees = [
@@ -1321,6 +1321,7 @@
       watchError: "",
       watchEditingId: "",
       watchSyncProgress: "",
+      watchAutoStartedAt: localStorage.getItem("tcWatchAutoStartedAt") || "",
       lastWatchAutoSyncAttempt: 0,
       persistQueued: false,
       lastPersistSnapshot: "",
@@ -2329,7 +2330,11 @@
       });
       els.watchStatus.classList.toggle("bad", Boolean(state.watchError));
       els.watchStatus.classList.toggle("good", !state.watchError && count > 0);
-      const liveNote = state.live && state.apiInterval ? ` Live auto-sync refreshes due companies on the ${state.apiInterval} min interval.` : "";
+      const liveNote = state.live && state.apiInterval
+        ? state.watchAutoStartedAt
+          ? ` Live timer started: next due refresh uses the ${state.apiInterval} min interval.`
+          : " Press Sync All Companies to start the live timer."
+        : "";
       els.watchStatus.textContent = state.watchError || state.watchSyncProgress || `${count}/${maxWatchCompanies} extra companies saved.${count ? " Press Sync All Companies to refresh them now." + liveNote : ""}`;
       els.watchList.innerHTML = count ? state.watchCompanies.map((company) => `
         <div class="history-item watchlist-item">
@@ -2717,13 +2722,19 @@
         return;
       }
       if (state.apiKey) {
-        const extra = state.watchCompanies.length ? ` + ${state.watchCompanies.length} extra` : "";
+        const extra = state.watchCompanies.length
+          ? state.watchAutoStartedAt ? ` + ${state.watchCompanies.length} extra` : " + extra waiting for Sync All"
+          : "";
         els.liveStatus.textContent = state.apiInterval
           ? `Auto chart: API every ${state.apiInterval} min${extra}`
           : "Auto chart ready: auto-sync off";
         return;
       }
       if (state.watchCompanies.length && state.apiInterval) {
+        if (!state.watchAutoStartedAt) {
+          els.liveStatus.textContent = "Auto chart: press Sync All to start extra company timer";
+          return;
+        }
         const syncedWatch = state.watchCompanies.filter((company) => company.summary).length;
         els.liveStatus.textContent = `Auto chart: ${syncedWatch}/${state.watchCompanies.length} extra companies live`;
         return;
@@ -2788,12 +2799,13 @@
         tcRealDataOnly: String(state.realDataOnly),
         tcChartAuto: String(state.live),
         tcCompanyPreset: state.companyPreset,
-      tcLatestBreakdown: JSON.stringify(state.latestBreakdown),
-      tcGoals: JSON.stringify(state.goals),
-      tcSyncHistory: JSON.stringify(state.syncHistory.slice(-50)),
-      tcCompanyHistory: JSON.stringify(state.companyHistory.slice(-500)),
-      tcRoleChanges: JSON.stringify(state.roleChanges.slice(-40)),
+        tcLatestBreakdown: JSON.stringify(state.latestBreakdown),
+        tcGoals: JSON.stringify(state.goals),
+        tcSyncHistory: JSON.stringify(state.syncHistory.slice(-50)),
+        tcCompanyHistory: JSON.stringify(state.companyHistory.slice(-500)),
+        tcRoleChanges: JSON.stringify(state.roleChanges.slice(-40)),
         tcWatchCompanies: JSON.stringify(state.watchCompanies.slice(0, maxWatchCompanies)),
+        tcWatchAutoStartedAt: state.watchAutoStartedAt,
         tcEmployeeFilter: state.employeeFilter,
         tcProfiles: JSON.stringify(state.profiles),
         tcActiveProfile: state.activeProfile
@@ -3017,12 +3029,14 @@
       }
       state.watchSyncing = false;
       state.watchSyncProgress = "";
+      state.watchAutoStartedAt = new Date().toISOString();
+      state.lastWatchAutoSyncAttempt = Date.now();
       state.watchError = failures ? `${failures} company sync${failures === 1 ? "" : "s"} failed. Check the saved keys and company permissions.` : "";
       renderAll();
     }
 
     async function maybeAutoSyncWatchCompanies(force = false) {
-      if (!state.live || !state.apiInterval || !state.watchCompanies.length || state.watchSyncing) return;
+      if (!state.live || !state.apiInterval || !state.watchAutoStartedAt || !state.watchCompanies.length || state.watchSyncing) return;
       const now = Date.now();
       const intervalMs = state.apiInterval * 60 * 1000;
       if (!force && now - state.lastWatchAutoSyncAttempt < 15 * 1000) return;
@@ -3577,6 +3591,7 @@
       const remove = event.target.closest("[data-remove-watch]");
       if (!remove) return;
       state.watchCompanies = state.watchCompanies.filter((company) => company.id !== remove.dataset.removeWatch);
+      if (!state.watchCompanies.length) state.watchAutoStartedAt = "";
       if (state.watchEditingId === remove.dataset.removeWatch) resetWatchEditor();
       state.watchError = "";
       renderAll();
@@ -3632,7 +3647,7 @@
       updateLiveStatus();
       persist();
       if (state.live && state.apiKey) maybeAutoSync(true);
-      if (state.live) maybeAutoSyncWatchCompanies(true);
+      if (state.live && state.watchAutoStartedAt) maybeAutoSyncWatchCompanies(true);
     });
     els.resetData.addEventListener("click", () => {
       state.employees = JSON.parse(JSON.stringify(seedEmployees));
@@ -3644,6 +3659,7 @@
       state.latestBreakdown = null;
       state.syncHistory = [];
       state.companyHistory = [];
+      state.watchAutoStartedAt = "";
       state.openRows.clear();
       renderAll();
     });
