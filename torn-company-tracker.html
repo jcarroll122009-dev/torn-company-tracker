@@ -877,7 +877,7 @@
         <p class="subtitle">Live profit chart, employee stats, click-to-expand records, and a quick reading panel.</p>
       </div>
       <div class="status-strip" aria-label="Tracker status">
-        <span class="pill"><span class="dot"></span><span id="liveStatus">Live simulation running</span></span>
+        <span class="pill"><span class="dot"></span><span id="liveStatus">Auto chart waiting for API</span></span>
         <span class="pill" id="clock">--:--</span>
       </div>
     </header>
@@ -917,23 +917,10 @@
                 <button class="seg-button" data-range="month" type="button">Month</button>
               </div>
               <button class="icon-button" id="toggleLive" type="button" title="Pause or resume live chart">||</button>
-              <button class="icon-button" id="randomTick" type="button" title="Add sample tick">+</button>
             </div>
           </div>
           <div class="chart-wrap">
             <canvas id="profitCanvas" aria-label="Live company profit line chart"></canvas>
-          </div>
-          <div class="tools">
-            <div class="form-row">
-              <input id="profitInput" type="number" min="-999999999" step="1000" placeholder="Add profit, e.g. 85000">
-              <select id="profitType" aria-label="Profit entry type">
-                <option value="sale">Sale</option>
-                <option value="stock">Stock cost</option>
-                <option value="wage">Wages</option>
-                <option value="misc">Misc</option>
-              </select>
-            </div>
-            <button class="text-button" id="addProfit" type="button">Add Entry</button>
           </div>
         </section>
 
@@ -1243,7 +1230,7 @@
 
     const state = {
       employees: JSON.parse(localStorage.getItem("tcEmployees") || "null") || seedEmployees,
-      profits: JSON.parse(localStorage.getItem("tcProfits") || "null") || makeProfitSeed(),
+      profits: (JSON.parse(localStorage.getItem("tcProfits") || "null") || []).filter((point) => point.type === "api"),
       selectedId: Number(localStorage.getItem("tcSelected") || 1),
       apiKey: localStorage.getItem("tcApiKey") || "",
       apiLastSync: localStorage.getItem("tcApiLastSync") || "",
@@ -1316,11 +1303,7 @@
       search: document.getElementById("search"),
       sortBy: document.getElementById("sortBy"),
       employeeFilter: document.getElementById("employeeFilter"),
-      profitInput: document.getElementById("profitInput"),
-      profitType: document.getElementById("profitType"),
-      addProfit: document.getElementById("addProfit"),
       toggleLive: document.getElementById("toggleLive"),
-      randomTick: document.getElementById("randomTick"),
       resetData: document.getElementById("resetData"),
       saveGoals: document.getElementById("saveGoals"),
       companyPreset: document.getElementById("companyPreset"),
@@ -1352,17 +1335,6 @@
       watchList: document.getElementById("watchList"),
       clearFilters: document.getElementById("clearFilters")
     };
-
-    function makeProfitSeed() {
-      const now = Date.now();
-      const points = [];
-      let total = 2480000;
-      for (let i = 47; i >= 0; i -= 1) {
-        total += Math.round((Math.sin(i / 3) * 42000) + 74000 + Math.random() * 65000);
-        points.push({ t: now - i * 30 * 60 * 1000, value: total, type: "sale" });
-      }
-      return points;
-    }
 
     function money(value) {
       const sign = value < 0 ? "-" : "";
@@ -1486,7 +1458,7 @@
         month: 30 * 24 * 60 * 60 * 1000
       };
       const cutoff = now - windows[state.range];
-      return state.profits.filter((point) => point.t >= cutoff);
+      return state.profits.filter((point) => point.type === "api" && point.t >= cutoff);
     }
 
     function resizeCanvas(canvas) {
@@ -2005,7 +1977,7 @@
       if (!profile) return;
       Object.assign(state, {
         employees: profile.employees || JSON.parse(JSON.stringify(seedEmployees)),
-        profits: profile.profits || makeProfitSeed(),
+        profits: (profile.profits || []).filter((point) => point.type === "api"),
         selectedId: Number(profile.selectedId || 1),
         apiKey: profile.apiKey || "",
         apiLastSync: profile.apiLastSync || "",
@@ -2477,7 +2449,7 @@
           : "Auto chart ready: auto-sync off";
         return;
       }
-      els.liveStatus.textContent = "Auto chart: demo ticks";
+      els.liveStatus.textContent = "Auto chart waiting for API";
     }
 
     function renderAll() {
@@ -2509,7 +2481,7 @@
 
     function persist() {
       localStorage.setItem("tcEmployees", JSON.stringify(state.employees));
-      localStorage.setItem("tcProfits", JSON.stringify(state.profits.slice(-180)));
+      localStorage.setItem("tcProfits", JSON.stringify(state.profits.filter((point) => point.type === "api").slice(-180)));
       localStorage.setItem("tcSelected", String(state.selectedId));
       localStorage.setItem("tcApiKey", state.apiKey);
       localStorage.setItem("tcApiLastSync", state.apiLastSync);
@@ -2533,18 +2505,6 @@
       localStorage.setItem("tcActiveProfile", state.activeProfile);
     }
 
-    function addProfitEntry(amount, type = "sale") {
-      if (!Number.isFinite(amount) || amount === 0) return;
-      const last = state.profits[state.profits.length - 1]?.value || 0;
-      state.profits.push({ t: Date.now(), value: last + amount, type });
-      const salesperson = state.employees[Math.floor(Math.random() * state.employees.length)];
-      salesperson.profit += Math.round(amount * 0.18);
-      salesperson.sales += amount > 0 ? Math.max(1, Math.round(amount / 42000)) : 0;
-      salesperson.effectiveness = Math.max(35, Math.min(100, salesperson.effectiveness + (amount > 0 ? 1 : -1)));
-      addHistorySnapshot(type);
-      renderAll();
-    }
-
     function addHistorySnapshot(source) {
       const breakdown = currentBreakdown();
       const { avgEffect } = companyAverages();
@@ -2560,16 +2520,6 @@
         avgEffect
       });
       state.syncHistory = state.syncHistory.slice(-50);
-    }
-
-    function simulateTick() {
-      if (state.apiKey && state.apiLastSync) return;
-      const saleWeight = Math.random();
-      const base = saleWeight > 0.22 ? 48000 + Math.random() * 132000 : -(26000 + Math.random() * 98000);
-      addProfitEntry(Math.round(base), saleWeight > 0.22 ? "sale" : "cost");
-      state.employees.forEach((employee) => {
-        employee.activity = Math.max(20, Math.min(100, employee.activity + Math.round(Math.random() * 4 - 1.6)));
-      });
     }
 
     async function syncTornApi() {
@@ -3090,14 +3040,6 @@
       renderEmployees();
       persist();
     });
-    els.addProfit.addEventListener("click", () => {
-      addProfitEntry(Number(els.profitInput.value), els.profitType.value);
-      els.profitInput.value = "";
-    });
-    els.profitInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") els.addProfit.click();
-    });
-    els.randomTick.addEventListener("click", simulateTick);
     els.saveGoals.addEventListener("click", saveGoalInputs);
     els.companyPreset.value = state.companyPreset;
     els.companyPreset.addEventListener("change", () => applyCompanyPreset(els.companyPreset.value));
@@ -3187,7 +3129,7 @@
     });
     els.resetData.addEventListener("click", () => {
       state.employees = JSON.parse(JSON.stringify(seedEmployees));
-      state.profits = makeProfitSeed();
+      state.profits = [];
       state.selectedId = 1;
       state.apiError = "";
       state.apiMeta = null;
@@ -3224,7 +3166,7 @@
             t: Number(point.t || point.time || Date.now() - (incoming.profits.length - index) * 3600000),
             value: Number(point.value || point.profit || 0),
             type: point.type || "import"
-          }));
+          })).filter((point) => point.type === "api");
         }
         state.latestBreakdown = incoming.breakdown || null;
         if (Array.isArray(incoming.syncHistory)) state.syncHistory = incoming.syncHistory;
@@ -3245,9 +3187,6 @@
     setupMobileCollapsers();
     renderAll();
     setInterval(updateClock, 1000);
-    setInterval(() => {
-      if (state.live && !state.apiKey) simulateTick();
-    }, 4500);
     setInterval(() => {
       maybeAutoSync();
     }, 15 * 1000);
