@@ -620,6 +620,48 @@
       font-size: 0.92rem;
     }
 
+    .profit-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(17, 20, 25, 0.88);
+    }
+
+    .profit-table {
+      width: 100%;
+      min-width: 760px;
+      border-collapse: collapse;
+    }
+
+    .profit-table th,
+    .profit-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(52, 59, 70, 0.75);
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .profit-table th {
+      color: var(--muted);
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      background: rgba(32, 36, 43, 0.65);
+    }
+
+    .profit-table td {
+      color: var(--ink);
+      font-size: 0.9rem;
+    }
+
+    .profit-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .profit-table .total-row td {
+      font-weight: 760;
+      background: rgba(71, 209, 216, 0.06);
+    }
+
     .export-row {
       display: flex;
       flex-wrap: wrap;
@@ -2317,7 +2359,7 @@
         if (b.id === "total") return 1;
         return b.summary.net - a.summary.net;
       });
-      els.watchCompare.innerHTML = entries.length ? entries.map((company, index) => {
+      const cards = entries.length ? entries.map((company, index) => {
         const summary = company.summary;
         const rank = company.id === "total" ? "Total profit" : index === 0 ? "Best net" : `#${index + 1}`;
         return `
@@ -2343,6 +2385,56 @@
           </div>
         `;
       }).join("") : `<div class="history-item"><span>No company comparison yet</span><strong>Add up to 10 API keys</strong><p>Add company keys in the More Companies panel, then press Sync All.</p></div>`;
+      els.watchCompare.innerHTML = entries.length ? renderCompanyProfitTable(synced, total) + cards : cards;
+    }
+
+    function renderCompanyProfitTable(synced, total) {
+      const rows = [...synced].sort((a, b) => b.summary.net - a.summary.net).map((company) => {
+        const summary = company.summary;
+        return `
+          <tr>
+            <td>${esc(summary.name || company.label)}</td>
+            <td><strong class="delta ${summary.net >= 0 ? "good" : "bad"}">${money(summary.net)}</strong></td>
+            <td>${money(summary.sales)}</td>
+            <td>${money(summary.wages)}</td>
+            <td>${money(summary.stock)}</td>
+            <td>${summary.employees}</td>
+            <td>${money(summary.perEmployee)}</td>
+            <td>${company.lastSync ? new Date(company.lastSync).toLocaleString() : "Not synced"}</td>
+          </tr>
+        `;
+      }).join("");
+      const totalRow = total && synced.length > 1 ? `
+        <tr class="total-row">
+          <td>All synced companies</td>
+          <td><strong class="delta ${total.net >= 0 ? "good" : "bad"}">${money(total.net)}</strong></td>
+          <td>${money(total.sales)}</td>
+          <td>${money(total.wages)}</td>
+          <td>${money(total.stock)}</td>
+          <td>${total.employees}</td>
+          <td>${money(total.perEmployee)}</td>
+          <td>${synced.length} companies</td>
+        </tr>
+      ` : "";
+      return `
+        <div class="profit-table-wrap">
+          <table class="profit-table">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Net Profit</th>
+                <th>Sales</th>
+                <th>Wages</th>
+                <th>Stock</th>
+                <th>Employees</th>
+                <th>Per Employee</th>
+                <th>Last Sync</th>
+              </tr>
+            </thead>
+            <tbody>${rows}${totalRow}</tbody>
+          </table>
+        </div>
+      `;
     }
 
     function renderPermissions() {
