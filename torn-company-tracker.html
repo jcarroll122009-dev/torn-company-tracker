@@ -1166,6 +1166,7 @@
               <button class="text-button" id="addWatchCompany" type="button">Add</button>
             </div>
             <input id="watchKey" type="password" autocomplete="off" placeholder="Torn API key for that company">
+            <button class="text-button" id="syncWatchCompaniesSide" type="button">Sync All Companies</button>
             <div class="api-status" id="watchStatus">No extra companies added yet.</div>
             <div class="history-list" id="watchList"></div>
           </div>
@@ -1331,6 +1332,7 @@
       watchKey: document.getElementById("watchKey"),
       addWatchCompany: document.getElementById("addWatchCompany"),
       syncWatchCompanies: document.getElementById("syncWatchCompanies"),
+      syncWatchCompaniesSide: document.getElementById("syncWatchCompaniesSide"),
       watchStatus: document.getElementById("watchStatus"),
       watchList: document.getElementById("watchList"),
       clearFilters: document.getElementById("clearFilters")
@@ -2174,11 +2176,13 @@
 
     function renderWatchCompanies() {
       const count = state.watchCompanies.length;
-      els.syncWatchCompanies.disabled = state.watchSyncing || !count;
-      els.syncWatchCompanies.textContent = state.watchSyncing ? "Syncing" : "Sync All";
+      [els.syncWatchCompanies, els.syncWatchCompaniesSide].forEach((button) => {
+        button.disabled = state.watchSyncing || !count;
+        button.textContent = state.watchSyncing ? "Syncing" : button === els.syncWatchCompaniesSide ? "Sync All Companies" : "Sync All";
+      });
       els.watchStatus.classList.toggle("bad", Boolean(state.watchError));
       els.watchStatus.classList.toggle("good", !state.watchError && count > 0);
-      els.watchStatus.textContent = state.watchError || `${count}/10 extra companies saved.${count ? " Press Sync All to refresh them." : ""}`;
+      els.watchStatus.textContent = state.watchError || `${count}/10 extra companies saved.${count ? " Press Sync All Companies to refresh them." : ""}`;
       els.watchList.innerHTML = count ? state.watchCompanies.map((company) => `
         <div class="history-item watchlist-item">
           <div>
@@ -3077,6 +3081,7 @@
       renderAll();
     });
     els.syncWatchCompanies.addEventListener("click", syncWatchCompanies);
+    els.syncWatchCompaniesSide.addEventListener("click", syncWatchCompanies);
     els.apiKeyInput.addEventListener("change", () => {
       state.apiKey = els.apiKeyInput.value.trim();
       state.apiError = "";
