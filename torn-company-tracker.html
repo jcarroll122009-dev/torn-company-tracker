@@ -983,10 +983,22 @@
           <div class="panel-head">
             <h2>Company Watchlist</h2>
             <div class="panel-actions">
+              <button class="text-button" id="jumpCompanyHistory" type="button">History</button>
               <button class="text-button" id="syncWatchCompanies" type="button">Sync All</button>
             </div>
           </div>
           <div class="watch-compare" id="watchCompare"></div>
+        </section>
+
+        <section class="panel" id="companyHistoryPanel" aria-label="Company profit history">
+          <div class="panel-head">
+            <h2>Company Profit History</h2>
+            <div class="panel-actions">
+              <button class="text-button" id="exportCompanyHistory" type="button">Export Company History CSV</button>
+              <button class="text-button" id="clearCompanyHistory" type="button">Clear History</button>
+            </div>
+          </div>
+          <div class="watch-compare" id="companyHistoryList"></div>
         </section>
 
         <section class="dashboard-grid" aria-label="Company manager panels">
@@ -1097,17 +1109,6 @@
             <button class="text-button" id="exportHistory" type="button">Export History CSV</button>
           </div>
           <div class="history-list" id="historyList"></div>
-        </section>
-
-        <section class="panel" aria-label="Company profit history">
-          <div class="panel-head">
-            <h2>Company Profit History</h2>
-            <div class="panel-actions">
-              <button class="text-button" id="exportCompanyHistory" type="button">Export Company History CSV</button>
-              <button class="text-button" id="clearCompanyHistory" type="button">Clear History</button>
-            </div>
-          </div>
-          <div class="watch-compare" id="companyHistoryList"></div>
         </section>
 
         <section class="panel" aria-label="Employee statistics">
@@ -1230,7 +1231,7 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-05-company-history";
+    const appVersion = "2026-07-05-history-visible";
 
     const seedEmployees = [
       { id: 1, name: "Ash", role: "Sales Executive", stars: 5, effectiveness: 94, sales: 121, activity: 98, wage: 135000, profit: 642000, addiction: 0, merits: 18, lastSeen: "12 min ago", trains: 4, notes: "Highest customer conversion. Keep on premium rotation." },
@@ -1375,6 +1376,7 @@
       exportHistory: document.getElementById("exportHistory"),
       exportCompanyHistory: document.getElementById("exportCompanyHistory"),
       clearCompanyHistory: document.getElementById("clearCompanyHistory"),
+      jumpCompanyHistory: document.getElementById("jumpCompanyHistory"),
       apiKeyInput: document.getElementById("apiKeyInput"),
       syncApi: document.getElementById("syncApi"),
       clearApi: document.getElementById("clearApi"),
@@ -3506,6 +3508,9 @@
     els.clearCompanyHistory.addEventListener("click", () => {
       state.companyHistory = [];
       renderAll();
+    });
+    els.jumpCompanyHistory.addEventListener("click", () => {
+      document.getElementById("companyHistoryPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     els.clearRoleLog.addEventListener("click", () => {
       state.roleChanges = [];
