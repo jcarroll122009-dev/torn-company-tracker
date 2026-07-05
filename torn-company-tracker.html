@@ -1214,7 +1214,7 @@
           </div>
           <div class="api-panel">
             <h2>More Companies</h2>
-            <p class="notes">Add up to 10 company API keys to compare other companies. Keys are saved only in this browser.</p>
+            <p class="notes">Add up to 50 company API keys to compare other companies. Keys are saved only in this browser.</p>
             <div class="api-grid three">
               <input id="watchName" type="text" placeholder="Company name or owner">
               <button class="text-button" id="addWatchCompany" type="button">Add</button>
@@ -1231,7 +1231,8 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-05-history-visible";
+    const appVersion = "2026-07-05-fifty-companies";
+    const maxWatchCompanies = 50;
 
     const seedEmployees = [
       { id: 1, name: "Ash", role: "Sales Executive", stars: 5, effectiveness: 94, sales: 121, activity: 98, wage: 135000, profit: 642000, addiction: 0, merits: 18, lastSeen: "12 min ago", trains: 4, notes: "Highest customer conversion. Keep on premium rotation." },
@@ -1315,7 +1316,7 @@
       syncHistory: JSON.parse(localStorage.getItem("tcSyncHistory") || "null") || [],
       companyHistory: JSON.parse(localStorage.getItem("tcCompanyHistory") || "null") || [],
       roleChanges: JSON.parse(localStorage.getItem("tcRoleChanges") || "null") || [],
-      watchCompanies: (JSON.parse(localStorage.getItem("tcWatchCompanies") || "null") || []).slice(0, 10),
+      watchCompanies: (JSON.parse(localStorage.getItem("tcWatchCompanies") || "null") || []).slice(0, maxWatchCompanies),
       watchSyncing: false,
       watchError: "",
       watchEditingId: "",
@@ -2327,7 +2328,7 @@
       });
       els.watchStatus.classList.toggle("bad", Boolean(state.watchError));
       els.watchStatus.classList.toggle("good", !state.watchError && count > 0);
-      els.watchStatus.textContent = state.watchError || state.watchSyncProgress || `${count}/10 extra companies saved.${count ? " Press Sync All Companies to refresh them." : ""}`;
+      els.watchStatus.textContent = state.watchError || state.watchSyncProgress || `${count}/${maxWatchCompanies} extra companies saved.${count ? " Press Sync All Companies to refresh them." : ""}`;
       els.watchList.innerHTML = count ? state.watchCompanies.map((company) => `
         <div class="history-item watchlist-item">
           <div>
@@ -2341,7 +2342,7 @@
             <button class="text-button" data-remove-watch="${esc(company.id)}" type="button" ${state.watchSyncing ? "disabled" : ""}>Remove</button>
           </div>
         </div>
-      `).join("") : `<div class="history-item"><span>Empty</span><strong>Add a company key</strong><p>You can save up to 10 company API keys here and compare them in the watchlist panel.</p></div>`;
+      `).join("") : `<div class="history-item"><span>Empty</span><strong>Add a company key</strong><p>You can save up to ${maxWatchCompanies} company API keys here and compare them in the watchlist panel.</p></div>`;
       els.addWatchCompany.textContent = state.watchEditingId ? "Save" : "Add";
       els.cancelWatchEdit.classList.toggle("hidden", !state.watchEditingId);
     }
@@ -2403,7 +2404,7 @@
             <p class="notes">${summary.alertCount} workers need attention. Fields: ${summary.fields?.length ? esc(summary.fields.join(", ")) : "limited response"}.</p>
           </div>
         `;
-      }).join("") : `<div class="history-item"><span>No company comparison yet</span><strong>Add up to 10 API keys</strong><p>Add company keys in the More Companies panel, then press Sync All.</p></div>`;
+      }).join("") : `<div class="history-item"><span>No company comparison yet</span><strong>Add up to ${maxWatchCompanies} API keys</strong><p>Add company keys in the More Companies panel, then press Sync All.</p></div>`;
       els.watchCompare.innerHTML = entries.length ? renderCompanyProfitTable(synced, total) + cards : cards;
     }
 
@@ -2789,7 +2790,7 @@
       tcSyncHistory: JSON.stringify(state.syncHistory.slice(-50)),
       tcCompanyHistory: JSON.stringify(state.companyHistory.slice(-500)),
       tcRoleChanges: JSON.stringify(state.roleChanges.slice(-40)),
-        tcWatchCompanies: JSON.stringify(state.watchCompanies.slice(0, 10)),
+        tcWatchCompanies: JSON.stringify(state.watchCompanies.slice(0, maxWatchCompanies)),
         tcEmployeeFilter: state.employeeFilter,
         tcProfiles: JSON.stringify(state.profiles),
         tcActiveProfile: state.activeProfile
@@ -2891,8 +2892,8 @@
         renderWatchCompanies();
         return;
       }
-      if (!editing && state.watchCompanies.length >= 10) {
-        state.watchError = "You can track up to 10 extra companies at one time.";
+      if (!editing && state.watchCompanies.length >= maxWatchCompanies) {
+        state.watchError = `You can track up to ${maxWatchCompanies} extra companies at one time.`;
         renderWatchCompanies();
         return;
       }
@@ -2999,7 +3000,7 @@
       state.watchSyncProgress = "";
       renderWatchCompanies();
       let failures = 0;
-      const companies = state.watchCompanies.slice(0, 10);
+      const companies = state.watchCompanies.slice(0, maxWatchCompanies);
       for (const [index, company] of companies.entries()) {
         state.watchSyncProgress = `Syncing ${index + 1}/${companies.length}: ${company.label || company.summary?.name || "company"}`;
         renderWatchCompanies();
