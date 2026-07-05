@@ -1177,7 +1177,7 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-05-breakdown";
+    const appVersion = "2026-07-05-total-profit";
 
     const seedEmployees = [
       { id: 1, name: "Ash", role: "Sales Executive", stars: 5, effectiveness: 94, sales: 121, activity: 98, wage: 135000, profit: 642000, addiction: 0, merits: 18, lastSeen: "12 min ago", trains: 4, notes: "Highest customer conversion. Keep on premium rotation." },
@@ -1403,17 +1403,8 @@
     }
 
     function currentBreakdown() {
-      if (state.latestBreakdown && state.apiLastSync) {
-        return {
-          sales: Number(state.latestBreakdown.sales) || 0,
-          wages: Number(state.latestBreakdown.wages) || 0,
-          stock: Number(state.latestBreakdown.stock) || 0,
-          net: Number(state.latestBreakdown.net) || 0,
-          perEmployee: Number(state.latestBreakdown.perEmployee) || 0
-        };
-      }
-      const watch = latestSyncedWatchCompany();
-      if (watch) return breakdownFromSummary(watch.summary);
+      const aggregate = allCompaniesBreakdown();
+      if (aggregate) return aggregate;
       const net = dailyDelta();
       const wages = state.employees.reduce((sum, employee) => sum + employee.wage, 0);
       const sales = Math.max(net + wages, state.employees.reduce((sum, employee) => sum + employee.profit + employee.wage, 0));
@@ -1434,15 +1425,46 @@
     }
 
     function confirmedBreakdown() {
-      if (state.latestBreakdown && state.apiLastSync) return {
+      return allCompaniesBreakdown();
+    }
+
+    function mainCompanySummary() {
+      if (!state.latestBreakdown || !state.apiLastSync) return null;
+      const breakdown = {
         sales: Number(state.latestBreakdown.sales) || 0,
         wages: Number(state.latestBreakdown.wages) || 0,
         stock: Number(state.latestBreakdown.stock) || 0,
         net: Number(state.latestBreakdown.net) || 0,
         perEmployee: Number(state.latestBreakdown.perEmployee) || 0
       };
-      const watch = latestSyncedWatchCompany();
-      return watch ? breakdownFromSummary(watch.summary) : null;
+      return {
+        name: state.apiMeta?.companyName || "Main company",
+        source: state.apiMeta?.source || "Main API",
+        fields: state.apiMeta?.fields || [],
+        employees: state.employees.length,
+        ...breakdown,
+        avgEffect: companyAverages().avgEffect,
+        avgActivity: companyAverages().avgActivity,
+        health: Number(els.companyHealth?.textContent?.replace("%", "")) || 0,
+        alertCount: state.employees.filter(needsAttention).length,
+        confidence: state.fieldAudit?.length ? Math.round((state.fieldAudit.filter((item) => item.status === "confirmed").length / state.fieldAudit.length) * 100) : 0
+      };
+    }
+
+    function syncedCompanySummaries() {
+      const main = mainCompanySummary();
+      const watch = state.watchCompanies
+        .filter((company) => company.summary && company.lastSync)
+        .map((company) => ({
+          id: company.id,
+          label: company.label,
+          summary: company.summary,
+          lastSync: company.lastSync
+        }));
+      return [
+        ...(main ? [{ id: "main", label: main.name, summary: main, lastSync: state.apiLastSync }] : []),
+        ...watch
+      ];
     }
 
     function latestSyncedWatchCompany() {
@@ -1461,12 +1483,34 @@
       };
     }
 
+    function allCompaniesBreakdown() {
+      const companies = syncedCompanySummaries();
+      if (!companies.length) return null;
+      const totals = companies.reduce((sum, company) => {
+        const breakdown = breakdownFromSummary(company.summary);
+        sum.sales += breakdown.sales;
+        sum.wages += breakdown.wages;
+        sum.stock += breakdown.stock;
+        sum.net += breakdown.net;
+        sum.employees += Number(company.summary.employees) || 0;
+        return sum;
+      }, { sales: 0, wages: 0, stock: 0, net: 0, employees: 0 });
+      return {
+        sales: totals.sales,
+        wages: totals.wages,
+        stock: totals.stock,
+        net: totals.net,
+        perEmployee: totals.employees ? totals.net / totals.employees : 0,
+        companyCount: companies.length,
+        employees: totals.employees
+      };
+    }
+
     function breakdownSourceLabel() {
-      if (state.latestBreakdown && state.apiLastSync) {
-        return state.apiMeta?.companyName || "main company";
-      }
-      const watch = latestSyncedWatchCompany();
-      return watch ? (watch.summary?.name || watch.label || "saved company") : "";
+      const companies = syncedCompanySummaries();
+      if (companies.length > 1) return `All synced companies (${companies.length})`;
+      if (companies.length === 1) return companies[0].summary?.name || companies[0].label || "synced company";
+      return "";
     }
 
     function companyAverages() {
@@ -1640,13 +1684,14 @@
       const { avgEffect, avgActivity, avgAddiction } = companyAverages();
       const health = Math.max(0, Math.min(100, (avgEffect * 0.58) + (avgActivity * 0.32) - (avgAddiction * 2.2)));
       const top = [...state.employees].sort((a, b) => b.profit - a.profit)[0] || { name: "--", profit: 0 };
+      const companyCount = syncedCompanySummaries().length;
 
       els.dailyProfit.textContent = confirmed ? money(breakdown.net) : "Sync Company";
       els.profitTrend.textContent = confirmed
-        ? `From ${source}: sales ${money(breakdown.sales)}, wages ${money(breakdown.wages)}, stock ${money(breakdown.stock)}`
+        ? `${source}: sales ${money(breakdown.sales)}, wages ${money(breakdown.wages)}, stock ${money(breakdown.stock)}`
         : "Waiting for a main or saved company sync";
-      els.employeeCount.textContent = state.realDataOnly && !confirmed ? "Sync Company" : `${state.employees.length}/10`;
-      els.bestEmployee.textContent = `Top: ${top.name} at ${money(top.profit)}`;
+      els.employeeCount.textContent = state.realDataOnly && !confirmed ? "Sync Company" : confirmed?.employees ? `${confirmed.employees} total` : `${state.employees.length}/10`;
+      els.bestEmployee.textContent = companyCount > 1 ? `${companyCount} companies synced` : `Top: ${top.name} at ${money(top.profit)}`;
       els.avgEffect.textContent = pct(avgEffect);
       els.avgActivity.textContent = `Average activity ${pct(avgActivity)}`;
       els.companyHealth.textContent = pct(health);
@@ -2241,26 +2286,40 @@
     }
 
     function renderWatchCompare() {
-      const current = state.apiLastSync ? [{
-        id: "current",
-        label: state.apiMeta?.companyName || "Current tracker",
+      const synced = syncedCompanySummaries();
+      const total = allCompaniesBreakdown();
+      const totalEmployees = synced.reduce((sum, company) => sum + (Number(company.summary.employees) || 0), 0);
+      const weightedAvg = (key) => totalEmployees
+        ? synced.reduce((sum, company) => sum + ((Number(company.summary[key]) || 0) * (Number(company.summary.employees) || 0)), 0) / totalEmployees
+        : 0;
+      const totalEntry = total && synced.length > 1 ? [{
+        id: "total",
+        label: "All synced companies",
         summary: {
-          name: state.apiMeta?.companyName || "Current tracker",
-          source: state.apiMeta?.source || "Current tracker",
-          fields: state.apiMeta?.fields || [],
-          ...currentBreakdown(),
-          employees: state.employees.length,
-          ...companyAverages(),
-          health: Math.max(0, Math.min(100, (companyAverages().avgEffect * 0.58) + (companyAverages().avgActivity * 0.32) - (companyAverages().avgAddiction * 2.2))),
-          alertCount: state.employees.filter(needsAttention).length,
-          confidence: state.fieldAudit?.length ? Math.round((state.fieldAudit.filter((item) => item.status === "confirmed").length / state.fieldAudit.length) * 100) : 0
+          name: "All synced companies",
+          source: "Combined total",
+          fields: ["combined"],
+          employees: total.employees,
+          sales: total.sales,
+          wages: total.wages,
+          stock: total.stock,
+          net: total.net,
+          perEmployee: total.perEmployee,
+          avgEffect: weightedAvg("avgEffect"),
+          avgActivity: weightedAvg("avgActivity"),
+          health: weightedAvg("health"),
+          alertCount: synced.reduce((sum, company) => sum + (Number(company.summary.alertCount) || 0), 0),
+          confidence: Math.round(synced.reduce((sum, company) => sum + (Number(company.summary.confidence) || 0), 0) / synced.length)
         }
       }] : [];
-      const synced = state.watchCompanies.filter((company) => company.summary);
-      const entries = [...current, ...synced].sort((a, b) => b.summary.net - a.summary.net);
+      const entries = [...totalEntry, ...synced].sort((a, b) => {
+        if (a.id === "total") return -1;
+        if (b.id === "total") return 1;
+        return b.summary.net - a.summary.net;
+      });
       els.watchCompare.innerHTML = entries.length ? entries.map((company, index) => {
         const summary = company.summary;
-        const rank = index === 0 ? "Best net" : `#${index + 1}`;
+        const rank = company.id === "total" ? "Total profit" : index === 0 ? "Best net" : `#${index + 1}`;
         return `
           <div class="watch-compare-card">
             <div class="watch-compare-top">
