@@ -1232,7 +1232,7 @@
 
     const state = {
       employees: JSON.parse(localStorage.getItem("tcEmployees") || "null") || seedEmployees,
-      profits: (JSON.parse(localStorage.getItem("tcProfits") || "null") || []).filter((point) => point.type === "api"),
+      profits: (JSON.parse(localStorage.getItem("tcProfits") || "null") || []).filter((point) => point.type?.startsWith("api")),
       selectedId: Number(localStorage.getItem("tcSelected") || 1),
       apiKey: localStorage.getItem("tcApiKey") || "",
       apiLastSync: localStorage.getItem("tcApiLastSync") || "",
@@ -1463,7 +1463,7 @@
         month: 30 * 24 * 60 * 60 * 1000
       };
       const cutoff = now - windows[state.range];
-      return state.profits.filter((point) => point.type === "api" && point.t >= cutoff);
+      return state.profits.filter((point) => point.type?.startsWith("api") && point.t >= cutoff);
     }
 
     function resizeCanvas(canvas) {
@@ -1982,7 +1982,7 @@
       if (!profile) return;
       Object.assign(state, {
         employees: profile.employees || JSON.parse(JSON.stringify(seedEmployees)),
-        profits: (profile.profits || []).filter((point) => point.type === "api"),
+        profits: (profile.profits || []).filter((point) => point.type?.startsWith("api")),
         selectedId: Number(profile.selectedId || 1),
         apiKey: profile.apiKey || "",
         apiLastSync: profile.apiLastSync || "",
@@ -2462,6 +2462,15 @@
           : "Auto chart ready: auto-sync off";
         return;
       }
+      const syncedWatch = state.watchCompanies.filter((company) => company.summary).length;
+      if (syncedWatch) {
+        els.liveStatus.textContent = `Auto chart: ${syncedWatch} watch company sync${syncedWatch === 1 ? "" : "s"}`;
+        return;
+      }
+      if (state.watchCompanies.length) {
+        els.liveStatus.textContent = "Auto chart waiting for watch sync";
+        return;
+      }
       els.liveStatus.textContent = "Auto chart waiting for API";
     }
 
@@ -2494,7 +2503,7 @@
 
     function persist() {
       localStorage.setItem("tcEmployees", JSON.stringify(state.employees));
-      localStorage.setItem("tcProfits", JSON.stringify(state.profits.filter((point) => point.type === "api").slice(-180)));
+      localStorage.setItem("tcProfits", JSON.stringify(state.profits.filter((point) => point.type?.startsWith("api")).slice(-180)));
       localStorage.setItem("tcSelected", String(state.selectedId));
       localStorage.setItem("tcApiKey", state.apiKey);
       localStorage.setItem("tcApiLastSync", state.apiLastSync);
@@ -2637,6 +2646,20 @@
       const data = await fetchLiveCompanyData(company.key);
       company.summary = summarizeCompanyData(data, company.label);
       company.lastSync = new Date().toISOString();
+      addWatchChartPoint(company);
+    }
+
+    function addWatchChartPoint(company) {
+      if (!company.summary || !Number.isFinite(company.summary.net)) return;
+      const last = state.profits[state.profits.length - 1]?.value || 0;
+      state.profits.push({
+        t: Date.now(),
+        value: last + company.summary.net,
+        type: "api-watch",
+        companyId: company.id,
+        companyName: company.summary.name || company.label
+      });
+      state.profits = state.profits.slice(-180);
     }
 
     async function syncWatchCompanyById(id) {
@@ -3247,7 +3270,7 @@
             t: Number(point.t || point.time || Date.now() - (incoming.profits.length - index) * 3600000),
             value: Number(point.value || point.profit || 0),
             type: point.type || "import"
-          })).filter((point) => point.type === "api");
+          })).filter((point) => point.type?.startsWith("api"));
         }
         state.latestBreakdown = incoming.breakdown || null;
         if (Array.isArray(incoming.syncHistory)) state.syncHistory = incoming.syncHistory;
