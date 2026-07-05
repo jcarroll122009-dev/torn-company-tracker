@@ -1275,7 +1275,7 @@
       openRows: new Set(),
       range: "day",
       employeeFilter: localStorage.getItem("tcEmployeeFilter") || "all",
-      live: true
+      live: localStorage.getItem("tcChartAuto") !== "false"
     };
 
     const els = {
@@ -1991,6 +1991,7 @@
         useProxy: state.useProxy,
         proxyUrl: state.proxyUrl,
         realDataOnly: state.realDataOnly,
+        live: state.live,
         companyPreset: state.companyPreset,
         latestBreakdown: state.latestBreakdown,
         goals: state.goals,
@@ -2016,6 +2017,7 @@
         useProxy: Boolean(profile.useProxy),
         proxyUrl: profile.proxyUrl || "",
         realDataOnly: Boolean(profile.realDataOnly),
+        live: profile.live !== false,
         companyPreset: profile.companyPreset || "custom",
         latestBreakdown: profile.latestBreakdown || null,
         goals: profile.goals || companyPresets.custom,
@@ -2463,6 +2465,21 @@
       drawLineChart(els.profitCanvas, chartPoints());
     }
 
+    function updateLiveStatus() {
+      els.toggleLive.textContent = state.live ? "||" : ">";
+      if (!state.live) {
+        els.liveStatus.textContent = "Profit chart paused";
+        return;
+      }
+      if (state.apiKey) {
+        els.liveStatus.textContent = state.apiInterval
+          ? `Auto chart: API every ${state.apiInterval} min`
+          : "Auto chart ready: auto-sync off";
+        return;
+      }
+      els.liveStatus.textContent = "Auto chart: demo ticks";
+    }
+
     function renderAll() {
       renderMetrics();
       renderBreakdown();
@@ -2486,6 +2503,7 @@
       renderChart();
       renderPermissions();
       renderProfiles();
+      updateLiveStatus();
       persist();
     }
 
@@ -2503,6 +2521,7 @@
       localStorage.setItem("tcUseProxy", String(state.useProxy));
       localStorage.setItem("tcProxyUrl", state.proxyUrl);
       localStorage.setItem("tcRealDataOnly", String(state.realDataOnly));
+      localStorage.setItem("tcChartAuto", String(state.live));
       localStorage.setItem("tcCompanyPreset", state.companyPreset);
       localStorage.setItem("tcLatestBreakdown", JSON.stringify(state.latestBreakdown));
       localStorage.setItem("tcGoals", JSON.stringify(state.goals));
@@ -2571,9 +2590,7 @@
         const data = await fetchLiveCompanyData(key);
         state.apiLastSync = new Date().toISOString();
         applyTornCompanyData(data);
-        state.live = false;
-        els.toggleLive.textContent = ">";
-        els.liveStatus.textContent = "Live API mode";
+        state.live = true;
         renderAll();
       } catch (error) {
         state.apiError = "API sync failed: " + error.message;
@@ -2963,12 +2980,12 @@
       document.querySelector(`[data-id="${Number(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
 
-    function maybeAutoSync() {
-      if (!state.apiKey || !state.apiInterval) return;
+    function maybeAutoSync(force = false) {
+      if (!state.live || !state.apiKey || !state.apiInterval) return;
       const now = Date.now();
       const lastSync = state.apiLastSync ? new Date(state.apiLastSync).getTime() : 0;
       const intervalMs = state.apiInterval * 60 * 1000;
-      if (now - Math.max(lastSync, state.lastAutoSyncAttempt) < intervalMs) return;
+      if (!force && now - Math.max(lastSync, state.lastAutoSyncAttempt) < intervalMs) return;
       state.lastAutoSyncAttempt = now;
       syncTornApi();
     }
@@ -3133,6 +3150,7 @@
     els.apiInterval.addEventListener("change", () => {
       state.apiInterval = Number(els.apiInterval.value);
       renderApiStatus();
+      updateLiveStatus();
       persist();
     });
     els.useProxy.checked = state.useProxy;
@@ -3163,8 +3181,9 @@
     });
     els.toggleLive.addEventListener("click", () => {
       state.live = !state.live;
-      els.toggleLive.textContent = state.live ? "||" : ">";
-      els.liveStatus.textContent = state.live ? "Live simulation running" : "Live simulation paused";
+      updateLiveStatus();
+      persist();
+      if (state.live && state.apiKey) maybeAutoSync(true);
     });
     els.resetData.addEventListener("click", () => {
       state.employees = JSON.parse(JSON.stringify(seedEmployees));
@@ -3227,11 +3246,11 @@
     renderAll();
     setInterval(updateClock, 1000);
     setInterval(() => {
-      if (state.live) simulateTick();
+      if (state.live && !state.apiKey) simulateTick();
     }, 4500);
     setInterval(() => {
       maybeAutoSync();
-    }, 60 * 1000);
+    }, 15 * 1000);
   </script>
 </body>
 </html>
