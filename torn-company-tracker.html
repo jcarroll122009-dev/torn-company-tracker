@@ -1099,6 +1099,17 @@
           <div class="history-list" id="historyList"></div>
         </section>
 
+        <section class="panel" aria-label="Company profit history">
+          <div class="panel-head">
+            <h2>Company Profit History</h2>
+            <div class="panel-actions">
+              <button class="text-button" id="exportCompanyHistory" type="button">Export Company History CSV</button>
+              <button class="text-button" id="clearCompanyHistory" type="button">Clear History</button>
+            </div>
+          </div>
+          <div class="watch-compare" id="companyHistoryList"></div>
+        </section>
+
         <section class="panel" aria-label="Employee statistics">
           <div class="panel-head">
             <h2>Employee Stats</h2>
@@ -1219,7 +1230,7 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-05-total-profit";
+    const appVersion = "2026-07-05-company-history";
 
     const seedEmployees = [
       { id: 1, name: "Ash", role: "Sales Executive", stars: 5, effectiveness: 94, sales: 121, activity: 98, wage: 135000, profit: 642000, addiction: 0, merits: 18, lastSeen: "12 min ago", trains: 4, notes: "Highest customer conversion. Keep on premium rotation." },
@@ -1301,6 +1312,7 @@
         minActivity: 80
       },
       syncHistory: JSON.parse(localStorage.getItem("tcSyncHistory") || "null") || [],
+      companyHistory: JSON.parse(localStorage.getItem("tcCompanyHistory") || "null") || [],
       roleChanges: JSON.parse(localStorage.getItem("tcRoleChanges") || "null") || [],
       watchCompanies: (JSON.parse(localStorage.getItem("tcWatchCompanies") || "null") || []).slice(0, 10),
       watchSyncing: false,
@@ -1344,6 +1356,7 @@
       dataAuditList: document.getElementById("dataAuditList"),
       watchCompare: document.getElementById("watchCompare"),
       historyList: document.getElementById("historyList"),
+      companyHistoryList: document.getElementById("companyHistoryList"),
       miniCanvas: document.getElementById("miniCanvas"),
       readout: document.getElementById("readout"),
       panelTitle: document.getElementById("panelTitle"),
@@ -1360,6 +1373,8 @@
       exportProfit: document.getElementById("exportProfit"),
       exportEmployees: document.getElementById("exportEmployees"),
       exportHistory: document.getElementById("exportHistory"),
+      exportCompanyHistory: document.getElementById("exportCompanyHistory"),
+      clearCompanyHistory: document.getElementById("clearCompanyHistory"),
       apiKeyInput: document.getElementById("apiKeyInput"),
       syncApi: document.getElementById("syncApi"),
       clearApi: document.getElementById("clearApi"),
@@ -2096,6 +2111,7 @@
         latestBreakdown: state.latestBreakdown,
         goals: state.goals,
         syncHistory: state.syncHistory,
+        companyHistory: state.companyHistory,
         roleChanges: state.roleChanges,
         employeeFilter: state.employeeFilter
       };
@@ -2122,6 +2138,7 @@
         latestBreakdown: profile.latestBreakdown || null,
         goals: profile.goals || companyPresets.custom,
         syncHistory: profile.syncHistory || [],
+        companyHistory: profile.companyHistory || [],
         roleChanges: profile.roleChanges || [],
         employeeFilter: profile.employeeFilter || "all"
       });
@@ -2467,6 +2484,57 @@
       `).join("") : `<div class="history-item"><span>No history yet</span><strong>Sync or add profit entries</strong><p>Snapshots appear here after API syncs or manual profit updates.</p></div>`;
     }
 
+    function renderCompanyHistory() {
+      const latest = latestCompanySnapshots();
+      if (!state.companyHistory.length) {
+        els.companyHistoryList.innerHTML = `<div class="history-item"><span>No company history yet</span><strong>Sync companies</strong><p>Each sync saves a dated snapshot so you can compare old profit, sales, wages, and employees later.</p></div>`;
+        return;
+      }
+      const latestTable = latest.map((snapshot) => {
+        const previous = previousCompanySnapshot(snapshot);
+        const delta = previous ? snapshot.net - previous.net : 0;
+        return `
+          <tr>
+            <td>${esc(snapshot.name)}</td>
+            <td><strong class="delta ${snapshot.net >= 0 ? "good" : "bad"}">${money(snapshot.net)}</strong></td>
+            <td>${previous ? `${delta >= 0 ? "+" : ""}${money(delta)}` : "First sync"}</td>
+            <td>${money(snapshot.sales)}</td>
+            <td>${money(snapshot.wages)}</td>
+            <td>${money(snapshot.stock)}</td>
+            <td>${snapshot.employees}</td>
+            <td>${new Date(snapshot.t).toLocaleString()}</td>
+          </tr>
+        `;
+      }).join("");
+      const recent = state.companyHistory.slice(-8).reverse().map((snapshot) => `
+        <div class="history-item">
+          <span>${new Date(snapshot.t).toLocaleString()}</span>
+          <strong>${esc(snapshot.name)}: ${money(snapshot.net)} net</strong>
+          <p>Sales ${money(snapshot.sales)}, wages ${money(snapshot.wages)}, stock ${money(snapshot.stock)}, employees ${snapshot.employees}, source ${esc(snapshot.source)}.</p>
+        </div>
+      `).join("");
+      els.companyHistoryList.innerHTML = `
+        <div class="profit-table-wrap">
+          <table class="profit-table">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Latest Net</th>
+                <th>Change</th>
+                <th>Sales</th>
+                <th>Wages</th>
+                <th>Stock</th>
+                <th>Employees</th>
+                <th>Saved</th>
+              </tr>
+            </thead>
+            <tbody>${latestTable}</tbody>
+          </table>
+        </div>
+        ${recent}
+      `;
+    }
+
     function renderStars(count) {
       return `<span class="rating" aria-label="${count} stars">${Array.from({ length: 5 }, (_, index) => `<span class="star ${index < count ? "on" : ""}"></span>`).join("")}</span>`;
     }
@@ -2678,6 +2746,7 @@
       renderWatchCompare();
       renderWatchCompanies();
       renderHistory();
+      renderCompanyHistory();
       renderRoleLog();
       renderEmployees();
       renderSidePanel();
@@ -2713,10 +2782,11 @@
         tcRealDataOnly: String(state.realDataOnly),
         tcChartAuto: String(state.live),
         tcCompanyPreset: state.companyPreset,
-        tcLatestBreakdown: JSON.stringify(state.latestBreakdown),
-        tcGoals: JSON.stringify(state.goals),
-        tcSyncHistory: JSON.stringify(state.syncHistory.slice(-50)),
-        tcRoleChanges: JSON.stringify(state.roleChanges.slice(-40)),
+      tcLatestBreakdown: JSON.stringify(state.latestBreakdown),
+      tcGoals: JSON.stringify(state.goals),
+      tcSyncHistory: JSON.stringify(state.syncHistory.slice(-50)),
+      tcCompanyHistory: JSON.stringify(state.companyHistory.slice(-500)),
+      tcRoleChanges: JSON.stringify(state.roleChanges.slice(-40)),
         tcWatchCompanies: JSON.stringify(state.watchCompanies.slice(0, 10)),
         tcEmployeeFilter: state.employeeFilter,
         tcProfiles: JSON.stringify(state.profiles),
@@ -2743,6 +2813,41 @@
         avgEffect
       });
       state.syncHistory = state.syncHistory.slice(-50);
+    }
+
+    function saveCompanySnapshot(id, label, summary, source = "watchlist") {
+      if (!summary) return;
+      state.companyHistory.push({
+        id: Date.now() + "-" + Math.random().toString(16).slice(2),
+        companyId: id || label || "company",
+        name: summary.name || label || "Company",
+        source,
+        t: Date.now(),
+        net: Number(summary.net) || 0,
+        sales: Number(summary.sales) || 0,
+        wages: Number(summary.wages) || 0,
+        stock: Number(summary.stock) || 0,
+        employees: Number(summary.employees) || 0,
+        perEmployee: Number(summary.perEmployee) || 0,
+        avgEffect: Number(summary.avgEffect) || 0,
+        avgActivity: Number(summary.avgActivity) || 0,
+        confidence: Number(summary.confidence) || 0
+      });
+      state.companyHistory = state.companyHistory.slice(-500);
+    }
+
+    function previousCompanySnapshot(snapshot) {
+      return [...state.companyHistory]
+        .filter((item) => item.companyId === snapshot.companyId && item.t < snapshot.t)
+        .sort((a, b) => b.t - a.t)[0] || null;
+    }
+
+    function latestCompanySnapshots() {
+      const latest = new Map();
+      [...state.companyHistory].sort((a, b) => a.t - b.t).forEach((snapshot) => {
+        latest.set(snapshot.companyId, snapshot);
+      });
+      return [...latest.values()].sort((a, b) => b.net - a.net);
     }
 
     async function syncTornApi() {
@@ -2847,6 +2952,7 @@
       const data = await fetchLiveCompanyData(company.key);
       company.summary = summarizeCompanyData(data, company.label);
       company.lastSync = new Date().toISOString();
+      saveCompanySnapshot(company.id, company.summary.name || company.label, company.summary, "watchlist");
       addWatchChartPoint(company);
     }
 
@@ -3044,6 +3150,7 @@
         serverTime: combined.timestamp?.timestamp || combined.timestamp || null,
         companyName: combined.name || combined.profile?.name || combined.company?.name || ""
       };
+      saveCompanySnapshot("main", state.apiMeta.companyName || "Main company", mainCompanySummary(), "main-api");
       addHistorySnapshot("api");
     }
 
@@ -3219,6 +3326,27 @@
       ]);
     }
 
+    function exportCompanyHistoryCsv() {
+      downloadCsv("torn-company-profit-history.csv", [
+        ["time", "companyId", "company", "source", "net", "sales", "wages", "stock", "employees", "perEmployee", "avgEffect", "avgActivity", "confidence"],
+        ...state.companyHistory.map((entry) => [
+          new Date(entry.t).toISOString(),
+          entry.companyId,
+          entry.name,
+          entry.source,
+          entry.net,
+          entry.sales,
+          entry.wages,
+          entry.stock,
+          entry.employees,
+          entry.perEmployee,
+          entry.avgEffect,
+          entry.avgActivity,
+          entry.confidence
+        ])
+      ]);
+    }
+
     function openEmployee(id) {
       state.selectedId = Number(id);
       state.openRows.add(Number(id));
@@ -3374,6 +3502,11 @@
     els.exportEmployees.addEventListener("click", exportEmployeesCsv);
     els.exportProfit.addEventListener("click", exportProfitCsv);
     els.exportHistory.addEventListener("click", exportHistoryCsv);
+    els.exportCompanyHistory.addEventListener("click", exportCompanyHistoryCsv);
+    els.clearCompanyHistory.addEventListener("click", () => {
+      state.companyHistory = [];
+      renderAll();
+    });
     els.clearRoleLog.addEventListener("click", () => {
       state.roleChanges = [];
       renderAll();
@@ -3466,6 +3599,7 @@
       state.apiPermissions = null;
       state.latestBreakdown = null;
       state.syncHistory = [];
+      state.companyHistory = [];
       state.openRows.clear();
       renderAll();
     });
@@ -3500,6 +3634,7 @@
         }
         state.latestBreakdown = incoming.breakdown || null;
         if (Array.isArray(incoming.syncHistory)) state.syncHistory = incoming.syncHistory;
+        if (Array.isArray(incoming.companyHistory)) state.companyHistory = incoming.companyHistory;
         addHistorySnapshot("json");
         renderAll();
       } catch (error) {
