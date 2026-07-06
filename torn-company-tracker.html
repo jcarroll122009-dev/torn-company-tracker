@@ -990,34 +990,6 @@
           <div class="watch-compare" id="watchCompare"></div>
         </section>
 
-        <section class="panel" aria-label="Company cash flow">
-          <div class="panel-head">
-            <h2>Company Cash Flow</h2>
-            <div class="panel-actions">
-              <button class="text-button" id="exportCashFlow" type="button">Export Cash Flow CSV</button>
-            </div>
-          </div>
-          <div class="breakdown-grid" id="cashFlowTotals"></div>
-          <div class="profit-table-wrap" id="cashFlowTable"></div>
-          <div class="api-panel">
-            <h2>Manual Money Moves</h2>
-            <p class="notes">Use this for deposits, withdrawals, owner pulls, or transfers Torn does not expose in company API data.</p>
-            <div class="api-grid three">
-              <select id="cashCompany" aria-label="Cash flow company"></select>
-              <select id="cashType" aria-label="Money move type">
-                <option value="in">Money in</option>
-                <option value="out">Money out</option>
-              </select>
-              <input id="cashAmount" type="number" min="0" step="1" placeholder="Amount">
-            </div>
-            <div class="api-grid">
-              <input id="cashNote" type="text" placeholder="Note, e.g. deposit, withdrawal, owner pull">
-              <button class="text-button" id="addCashAdjustment" type="button">Add Money Move</button>
-            </div>
-            <div class="history-list" id="cashAdjustmentList"></div>
-          </div>
-        </section>
-
         <section class="panel" id="companyHistoryPanel" aria-label="Company profit history">
           <div class="panel-head">
             <h2>Company Profit History</h2>
@@ -1259,7 +1231,7 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-05-cash-flow";
+    const appVersion = "2026-07-05-watch-timer-start";
     const maxWatchCompanies = 50;
 
     const seedEmployees = [
@@ -1343,7 +1315,6 @@
       },
       syncHistory: JSON.parse(localStorage.getItem("tcSyncHistory") || "null") || [],
       companyHistory: JSON.parse(localStorage.getItem("tcCompanyHistory") || "null") || [],
-      cashAdjustments: JSON.parse(localStorage.getItem("tcCashAdjustments") || "null") || [],
       roleChanges: JSON.parse(localStorage.getItem("tcRoleChanges") || "null") || [],
       watchCompanies: (JSON.parse(localStorage.getItem("tcWatchCompanies") || "null") || []).slice(0, maxWatchCompanies),
       watchSyncing: false,
@@ -1388,14 +1359,6 @@
       compareList: document.getElementById("compareList"),
       dataAuditList: document.getElementById("dataAuditList"),
       watchCompare: document.getElementById("watchCompare"),
-      cashFlowTotals: document.getElementById("cashFlowTotals"),
-      cashFlowTable: document.getElementById("cashFlowTable"),
-      cashCompany: document.getElementById("cashCompany"),
-      cashType: document.getElementById("cashType"),
-      cashAmount: document.getElementById("cashAmount"),
-      cashNote: document.getElementById("cashNote"),
-      addCashAdjustment: document.getElementById("addCashAdjustment"),
-      cashAdjustmentList: document.getElementById("cashAdjustmentList"),
       historyList: document.getElementById("historyList"),
       companyHistoryList: document.getElementById("companyHistoryList"),
       miniCanvas: document.getElementById("miniCanvas"),
@@ -1415,7 +1378,6 @@
       exportEmployees: document.getElementById("exportEmployees"),
       exportHistory: document.getElementById("exportHistory"),
       exportCompanyHistory: document.getElementById("exportCompanyHistory"),
-      exportCashFlow: document.getElementById("exportCashFlow"),
       clearCompanyHistory: document.getElementById("clearCompanyHistory"),
       jumpCompanyHistory: document.getElementById("jumpCompanyHistory"),
       apiKeyInput: document.getElementById("apiKeyInput"),
@@ -1604,57 +1566,6 @@
         companyCount: companies.length,
         employees: totals.employees
       };
-    }
-
-    function companyOptionsForCashFlow() {
-      const options = new Map();
-      const main = mainCompanySummary();
-      if (main || state.apiKey || state.apiMeta?.companyName) {
-        options.set("main", main?.name || state.apiMeta?.companyName || "Main company");
-      }
-      state.watchCompanies.forEach((company) => {
-        options.set(company.id, company.summary?.name || company.label || "Saved company");
-      });
-      return [...options.entries()].map(([id, name]) => ({ id, name }));
-    }
-
-    function adjustmentTotals(companyId) {
-      return state.cashAdjustments
-        .filter((item) => item.companyId === companyId)
-        .reduce((totals, item) => {
-          const amount = Number(item.amount) || 0;
-          if (item.type === "out") totals.out += amount;
-          else totals.in += amount;
-          return totals;
-        }, { in: 0, out: 0 });
-    }
-
-    function cashFlowRows() {
-      return syncedCompanySummaries().map((company) => {
-        const summary = company.summary;
-        const adjustments = adjustmentTotals(company.id);
-        const salesIn = Number(summary.sales) || 0;
-        const wagesOut = Number(summary.wages) || 0;
-        const stockOut = Number(summary.stock) || 0;
-        const moneyIn = salesIn + adjustments.in;
-        const moneyOut = wagesOut + stockOut + adjustments.out;
-        return {
-          id: company.id,
-          name: summary.name || company.label,
-          source: summary.source || "Company API",
-          salesIn,
-          manualIn: adjustments.in,
-          wagesOut,
-          stockOut,
-          manualOut: adjustments.out,
-          moneyIn,
-          moneyOut,
-          net: moneyIn - moneyOut,
-          operatingNet: salesIn - wagesOut - stockOut,
-          employees: Number(summary.employees) || 0,
-          lastSync: company.lastSync
-        };
-      });
     }
 
     function breakdownSourceLabel() {
@@ -2206,7 +2117,6 @@
         goals: state.goals,
         syncHistory: state.syncHistory,
         companyHistory: state.companyHistory,
-        cashAdjustments: state.cashAdjustments,
         roleChanges: state.roleChanges,
         employeeFilter: state.employeeFilter
       };
@@ -2234,7 +2144,6 @@
         goals: profile.goals || companyPresets.custom,
         syncHistory: profile.syncHistory || [],
         companyHistory: profile.companyHistory || [],
-        cashAdjustments: profile.cashAdjustments || [],
         roleChanges: profile.roleChanges || [],
         employeeFilter: profile.employeeFilter || "all"
       });
@@ -2555,77 +2464,6 @@
       `;
     }
 
-    function renderCashFlow() {
-      const options = companyOptionsForCashFlow();
-      els.cashCompany.innerHTML = options.length
-        ? options.map((company) => `<option value="${esc(company.id)}">${esc(company.name)}</option>`).join("")
-        : `<option value="">Sync or add a company first</option>`;
-      els.addCashAdjustment.disabled = !options.length;
-
-      const rows = cashFlowRows().sort((a, b) => b.net - a.net);
-      const totals = rows.reduce((sum, row) => {
-        sum.moneyIn += row.moneyIn;
-        sum.moneyOut += row.moneyOut;
-        sum.manualIn += row.manualIn;
-        sum.manualOut += row.manualOut;
-        sum.net += row.net;
-        sum.employees += row.employees;
-        return sum;
-      }, { moneyIn: 0, moneyOut: 0, manualIn: 0, manualOut: 0, net: 0, employees: 0 });
-
-      els.cashFlowTotals.innerHTML = rows.length ? `
-        <div class="breakdown-item"><span>Total money in</span><strong>${money(totals.moneyIn)}</strong><small>Sales plus manual deposits</small></div>
-        <div class="breakdown-item"><span>Total money out</span><strong>${money(totals.moneyOut)}</strong><small>Wages, stock, withdrawals</small></div>
-        <div class="breakdown-item"><span>Net cash flow</span><strong class="delta ${totals.net >= 0 ? "good" : "bad"}">${money(totals.net)}</strong><small>${rows.length} synced companies</small></div>
-        <div class="breakdown-item"><span>Manual moves</span><strong>${money(totals.manualIn - totals.manualOut)}</strong><small>In ${money(totals.manualIn)} / out ${money(totals.manualOut)}</small></div>
-      ` : `<div class="breakdown-item"><span>Waiting for companies</span><strong>$0</strong><small>Sync your main API or extra companies to build cash flow.</small></div>`;
-
-      const body = rows.map((row) => `
-        <tr>
-          <td>${esc(row.name)}</td>
-          <td>${money(row.moneyIn)}</td>
-          <td>${money(row.salesIn)}</td>
-          <td>${money(row.manualIn)}</td>
-          <td>${money(row.moneyOut)}</td>
-          <td>${money(row.wagesOut)}</td>
-          <td>${money(row.stockOut)}</td>
-          <td>${money(row.manualOut)}</td>
-          <td><strong class="delta ${row.net >= 0 ? "good" : "bad"}">${money(row.net)}</strong></td>
-          <td>${row.lastSync ? new Date(row.lastSync).toLocaleString() : "Not synced"}</td>
-        </tr>
-      `).join("");
-      els.cashFlowTable.innerHTML = rows.length ? `
-        <table class="profit-table">
-          <thead>
-            <tr>
-              <th>Company</th>
-              <th>Money In</th>
-              <th>Sales</th>
-              <th>Manual In</th>
-              <th>Money Out</th>
-              <th>Wages</th>
-              <th>Stock</th>
-              <th>Manual Out</th>
-              <th>Net Flow</th>
-              <th>Last Sync</th>
-            </tr>
-          </thead>
-          <tbody>${body}</tbody>
-        </table>
-      ` : `<div class="history-item"><span>No cash flow yet</span><strong>Sync companies</strong><p>The table will show money in, money out, and net flow for every synced company.</p></div>`;
-
-      els.cashAdjustmentList.innerHTML = state.cashAdjustments.length ? state.cashAdjustments.slice(-8).reverse().map((item) => `
-        <div class="history-item">
-          <span>${new Date(item.t).toLocaleString()}</span>
-          <strong>${esc(item.companyName)}: ${item.type === "out" ? "-" : "+"}${money(item.amount)}</strong>
-          <p>${esc(item.note || (item.type === "out" ? "Money out" : "Money in"))}</p>
-          <div class="panel-actions">
-            <button class="text-button" data-remove-cash="${esc(item.id)}" type="button">Remove</button>
-          </div>
-        </div>
-      `).join("") : `<div class="history-item"><span>No manual moves</span><strong>Optional</strong><p>Add deposits, withdrawals, owner pulls, or transfers that are not available from Torn API fields.</p></div>`;
-    }
-
     function renderPermissions() {
       if (!state.apiPermissions) {
         els.permissionStatus.textContent = "API permissions not checked yet.";
@@ -2671,8 +2509,6 @@
             <td><strong class="delta ${snapshot.net >= 0 ? "good" : "bad"}">${money(snapshot.net)}</strong></td>
             <td>${previous ? `${delta >= 0 ? "+" : ""}${money(delta)}` : "First sync"}</td>
             <td>${money(snapshot.sales)}</td>
-            <td>${money(snapshot.moneyIn ?? snapshot.sales)}</td>
-            <td>${money(snapshot.moneyOut ?? ((snapshot.wages || 0) + (snapshot.stock || 0)))}</td>
             <td>${money(snapshot.wages)}</td>
             <td>${money(snapshot.stock)}</td>
             <td>${snapshot.employees}</td>
@@ -2683,8 +2519,8 @@
       const recent = state.companyHistory.slice(-8).reverse().map((snapshot) => `
         <div class="history-item">
           <span>${new Date(snapshot.t).toLocaleString()}</span>
-          <strong>${esc(snapshot.name)}: ${money(snapshot.cashNet ?? snapshot.net)} cash flow</strong>
-          <p>In ${money(snapshot.moneyIn ?? snapshot.sales)}, out ${money(snapshot.moneyOut ?? ((snapshot.wages || 0) + (snapshot.stock || 0)))}, sales ${money(snapshot.sales)}, wages ${money(snapshot.wages)}, stock ${money(snapshot.stock)}, employees ${snapshot.employees}, source ${esc(snapshot.source)}.</p>
+          <strong>${esc(snapshot.name)}: ${money(snapshot.net)} net</strong>
+          <p>Sales ${money(snapshot.sales)}, wages ${money(snapshot.wages)}, stock ${money(snapshot.stock)}, employees ${snapshot.employees}, source ${esc(snapshot.source)}.</p>
         </div>
       `).join("");
       els.companyHistoryList.innerHTML = `
@@ -2696,8 +2532,6 @@
                 <th>Latest Net</th>
                 <th>Change</th>
                 <th>Sales</th>
-                <th>Money In</th>
-                <th>Money Out</th>
                 <th>Wages</th>
                 <th>Stock</th>
                 <th>Employees</th>
@@ -2927,7 +2761,6 @@
       renderSnapshotCompare();
       renderDataAudit();
       renderWatchCompare();
-      renderCashFlow();
       renderWatchCompanies();
       renderHistory();
       renderCompanyHistory();
@@ -2970,7 +2803,6 @@
         tcGoals: JSON.stringify(state.goals),
         tcSyncHistory: JSON.stringify(state.syncHistory.slice(-50)),
         tcCompanyHistory: JSON.stringify(state.companyHistory.slice(-500)),
-        tcCashAdjustments: JSON.stringify(state.cashAdjustments.slice(-300)),
         tcRoleChanges: JSON.stringify(state.roleChanges.slice(-40)),
         tcWatchCompanies: JSON.stringify(state.watchCompanies.slice(0, maxWatchCompanies)),
         tcWatchAutoStartedAt: state.watchAutoStartedAt,
@@ -3003,9 +2835,6 @@
 
     function saveCompanySnapshot(id, label, summary, source = "watchlist") {
       if (!summary) return;
-      const adjustments = adjustmentTotals(id || label || "company");
-      const moneyIn = (Number(summary.sales) || 0) + adjustments.in;
-      const moneyOut = (Number(summary.wages) || 0) + (Number(summary.stock) || 0) + adjustments.out;
       state.companyHistory.push({
         id: Date.now() + "-" + Math.random().toString(16).slice(2),
         companyId: id || label || "company",
@@ -3016,11 +2845,6 @@
         sales: Number(summary.sales) || 0,
         wages: Number(summary.wages) || 0,
         stock: Number(summary.stock) || 0,
-        manualIn: adjustments.in,
-        manualOut: adjustments.out,
-        moneyIn,
-        moneyOut,
-        cashNet: moneyIn - moneyOut,
         employees: Number(summary.employees) || 0,
         perEmployee: Number(summary.perEmployee) || 0,
         avgEffect: Number(summary.avgEffect) || 0,
@@ -3558,7 +3382,7 @@
 
     function exportCompanyHistoryCsv() {
       downloadCsv("torn-company-profit-history.csv", [
-        ["time", "companyId", "company", "source", "net", "sales", "wages", "stock", "manualIn", "manualOut", "moneyIn", "moneyOut", "cashNet", "employees", "perEmployee", "avgEffect", "avgActivity", "confidence"],
+        ["time", "companyId", "company", "source", "net", "sales", "wages", "stock", "employees", "perEmployee", "avgEffect", "avgActivity", "confidence"],
         ...state.companyHistory.map((entry) => [
           new Date(entry.t).toISOString(),
           entry.companyId,
@@ -3568,11 +3392,6 @@
           entry.sales,
           entry.wages,
           entry.stock,
-          entry.manualIn || 0,
-          entry.manualOut || 0,
-          entry.moneyIn ?? entry.sales,
-          entry.moneyOut ?? ((entry.wages || 0) + (entry.stock || 0)),
-          entry.cashNet ?? entry.net,
           entry.employees,
           entry.perEmployee,
           entry.avgEffect,
@@ -3580,59 +3399,6 @@
           entry.confidence
         ])
       ]);
-    }
-
-    function exportCashFlowCsv() {
-      downloadCsv("dirtyninja-company-cash-flow.csv", [
-        ["companyId", "company", "source", "moneyIn", "salesIn", "manualIn", "moneyOut", "wagesOut", "stockOut", "manualOut", "netCashFlow", "operatingNet", "employees", "lastSync"],
-        ...cashFlowRows().map((row) => [
-          row.id,
-          row.name,
-          row.source,
-          row.moneyIn,
-          row.salesIn,
-          row.manualIn,
-          row.moneyOut,
-          row.wagesOut,
-          row.stockOut,
-          row.manualOut,
-          row.net,
-          row.operatingNet,
-          row.employees,
-          row.lastSync ? new Date(row.lastSync).toISOString() : ""
-        ]),
-        [],
-        ["manualMoveTime", "companyId", "company", "type", "amount", "note"],
-        ...state.cashAdjustments.map((item) => [
-          new Date(item.t).toISOString(),
-          item.companyId,
-          item.companyName,
-          item.type,
-          item.amount,
-          item.note
-        ])
-      ]);
-    }
-
-    function addCashAdjustment() {
-      const companyId = els.cashCompany.value;
-      const options = companyOptionsForCashFlow();
-      const company = options.find((item) => item.id === companyId);
-      const amount = Math.round(Number(els.cashAmount.value));
-      if (!company || !Number.isFinite(amount) || amount <= 0) return;
-      state.cashAdjustments.push({
-        id: Date.now() + "-" + Math.random().toString(16).slice(2),
-        companyId,
-        companyName: company.name,
-        type: els.cashType.value === "out" ? "out" : "in",
-        amount,
-        note: els.cashNote.value.trim(),
-        t: Date.now()
-      });
-      state.cashAdjustments = state.cashAdjustments.slice(-300);
-      els.cashAmount.value = "";
-      els.cashNote.value = "";
-      renderAll();
     }
 
     function openEmployee(id) {
@@ -3791,14 +3557,6 @@
     els.exportProfit.addEventListener("click", exportProfitCsv);
     els.exportHistory.addEventListener("click", exportHistoryCsv);
     els.exportCompanyHistory.addEventListener("click", exportCompanyHistoryCsv);
-    els.exportCashFlow.addEventListener("click", exportCashFlowCsv);
-    els.addCashAdjustment.addEventListener("click", addCashAdjustment);
-    els.cashAdjustmentList.addEventListener("click", (event) => {
-      const remove = event.target.closest("[data-remove-cash]");
-      if (!remove) return;
-      state.cashAdjustments = state.cashAdjustments.filter((item) => item.id !== remove.dataset.removeCash);
-      renderAll();
-    });
     els.clearCompanyHistory.addEventListener("click", () => {
       state.companyHistory = [];
       renderAll();
@@ -3901,7 +3659,6 @@
       state.latestBreakdown = null;
       state.syncHistory = [];
       state.companyHistory = [];
-      state.cashAdjustments = [];
       state.watchAutoStartedAt = "";
       state.openRows.clear();
       renderAll();
@@ -3938,7 +3695,6 @@
         state.latestBreakdown = incoming.breakdown || null;
         if (Array.isArray(incoming.syncHistory)) state.syncHistory = incoming.syncHistory;
         if (Array.isArray(incoming.companyHistory)) state.companyHistory = incoming.companyHistory;
-        if (Array.isArray(incoming.cashAdjustments)) state.cashAdjustments = incoming.cashAdjustments;
         addHistorySnapshot("json");
         renderAll();
       } catch (error) {
