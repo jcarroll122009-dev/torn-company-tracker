@@ -17,6 +17,8 @@ https://jcarroll122009-dev.github.io/torn-company-tracker/torn-company-tracker.h
 - Tracks profit chart data automatically from API syncs.
 - Saves company snapshots so you can compare old data later.
 - Compares profit across your main company and saved extra companies.
+- Tracks money in, money out, and net cash flow across synced companies.
+- Lets you add manual money moves for deposits, withdrawals, owner pulls, or transfers.
 - Lets you save up to 50 extra company API keys.
 - Lets you edit saved company names/API keys without deleting and remaking them.
 - Auto-syncs extra companies after you press Sync All Companies.
@@ -54,8 +56,11 @@ Use Edit next to a saved company if the name or API key changes.
 
 - The profit chart records live API sync points automatically.
 - Company Profit History stores snapshots for the main company and extra companies.
-- Snapshots let you look back at older profit, sales, wages, stock cost, employees, and confidence data.
+- Company Cash Flow shows sales in, wages out, stock cost out, manual money moves, and net flow.
+- Manual Money Moves are for deposits, withdrawals, owner pulls, or transfers that Torn API does not expose directly.
+- Snapshots let you look back at older profit, money in, money out, sales, wages, stock cost, employees, and confidence data.
 - Use Export Profit CSV or Export Company History CSV if you want to save the data outside the browser.
+- Use Export Cash Flow CSV to save the current cash-flow table and manual move log.
 
 ## Sharing The App
 
