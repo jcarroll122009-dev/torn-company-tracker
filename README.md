@@ -46,7 +46,7 @@ Use the More Companies panel to track other companies.
 4. Repeat for up to 50 companies.
 5. Press Sync All Companies.
 
-After Sync All Companies finishes, the extra-company live timer starts. The app refreshes due companies on your selected interval and syncs one company at a time so it runs smoother with many saved companies.
+After Sync All Companies finishes, the extra-company live timer starts. The app refreshes due companies on your selected interval and syncs one company at a time so it runs smoother with many saved companies. Sync All Companies also spaces requests out to reduce API-limit risk.
 
 Use Edit next to a saved company if the name or API key changes.
 
@@ -74,6 +74,8 @@ Each person has their own saved API keys and data in their own browser. Your sav
 - API keys are saved in browser local storage.
 - GitHub Pages does not store your keys on a server.
 - Anyone using the app needs their own Torn API key with the needed company access.
+- Only add keys you own or keys the owner has clearly allowed you to use.
+- The app uses Torn API endpoints only; it does not scrape Torn pages or perform account actions.
 - If direct Torn API calls are blocked by the browser, enable Use backend proxy and enter a proxy URL.
 
 ## Optional Backend Proxy

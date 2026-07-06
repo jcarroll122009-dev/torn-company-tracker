@@ -1214,7 +1214,7 @@
           </div>
           <div class="api-panel">
             <h2>More Companies</h2>
-            <p class="notes">Add up to 50 company API keys to compare other companies. Keys are saved only in this browser.</p>
+            <p class="notes">Add up to 50 company API keys to compare other companies. Only add keys you own or have permission to use. Keys are saved only in this browser.</p>
             <div class="api-grid three">
               <input id="watchName" type="text" placeholder="Company name or owner">
               <button class="text-button" id="addWatchCompany" type="button">Add</button>
@@ -1231,8 +1231,9 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-05-watch-timer-start";
+    const appVersion = "2026-07-06-rate-safe-watch-sync";
     const maxWatchCompanies = 50;
+    const watchSyncDelayMs = 4000;
 
     const seedEmployees = [
       { id: 1, name: "Ash", role: "Sales Executive", stars: 5, effectiveness: 94, sales: 121, activity: 98, wage: 135000, profit: 642000, addiction: 0, merits: 18, lastSeen: "12 min ago", trains: 4, notes: "Highest customer conversion. Keep on premium rotation." },
@@ -3017,7 +3018,7 @@
       let failures = 0;
       const companies = state.watchCompanies.slice(0, maxWatchCompanies);
       for (const [index, company] of companies.entries()) {
-        state.watchSyncProgress = `Syncing ${index + 1}/${companies.length}: ${company.label || company.summary?.name || "company"}`;
+        state.watchSyncProgress = `Syncing ${index + 1}/${companies.length}: ${company.label || company.summary?.name || "company"}${index ? " (rate-safe spacing)" : ""}`;
         renderWatchCompanies();
         try {
           await syncOneWatchCompany(company);
@@ -3026,6 +3027,7 @@
           company.error = error.message || "Sync failed";
         }
         renderWatchCompanies();
+        if (index < companies.length - 1) await wait(watchSyncDelayMs);
       }
       state.watchSyncing = false;
       state.watchSyncProgress = "";
@@ -3138,6 +3140,10 @@
     function addTimestampParam(path) {
       const separator = path.includes("?") ? "&" : "?";
       return `${path}${separator}timestamp=${Date.now()}`;
+    }
+
+    function wait(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
     function applyTornCompanyData(data) {
