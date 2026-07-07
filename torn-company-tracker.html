@@ -1231,7 +1231,7 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-06-rate-safe-watch-sync";
+    const appVersion = "2026-07-07-profit-fallback-fix";
     const maxWatchCompanies = 50;
     const watchSyncDelayMs = 4000;
 
@@ -2280,8 +2280,7 @@
         ["profile.daily_stock_cost", combined.profile?.daily_stock_cost],
         ["stock.daily_cost", combined.stock?.daily_cost]
       ]);
-      const estimatedStock = stockPick.value === undefined ? estimateStockCost(combined.stock) : undefined;
-      const stockCost = stockPick.value ?? estimatedStock ?? 0;
+      const stockCost = stockPick.value ?? 0;
       const wages = employees.reduce((sum, employee) => sum + employee.wage, 0);
       const employeeProfit = employees.reduce((sum, employee) => sum + employee.profit, 0);
       const net = Number.isFinite(incomePick.value) ? incomePick.value - stockCost - wages : employeeProfit;
@@ -2299,7 +2298,7 @@
       const audit = [
         { label: "Employees", status: employeeList.length ? "confirmed" : "missing", source: "company employees", value: employeeList.length || 0 },
         { label: "Daily income", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: incomePick.source || "not returned", value: incomePick.value ?? sales },
-        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : estimatedStock !== undefined ? "estimated" : "fallback", source: stockPick.source || (estimatedStock !== undefined ? "stock item estimate" : "not returned"), value: stockCost },
+        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : "missing", source: stockPick.source || "not returned by API", value: stockCost },
         { label: "Wages", status: wages ? "confirmed" : "missing", source: "sum employee wages", value: wages },
         { label: "Daily net", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: Number.isFinite(incomePick.value) ? "income - stock - wages" : "sum(employee.profit)", value: net }
       ];
@@ -3080,11 +3079,31 @@
     async function fetchLiveCompanyData(key) {
       if (state.apiMode === "v1") return fetchCompanyV1(key);
       try {
-        return await fetchCompanyV2(key);
+        const v2Data = await fetchCompanyV2(key);
+        if (state.apiMode === "v2" || hasFinanceFields(v2Data)) return v2Data;
+        try {
+          const v1Data = await fetchCompanyV1(key);
+          v1Data.source = "API v1 finance fallback";
+          return v1Data;
+        } catch {
+          return v2Data;
+        }
       } catch (v2Error) {
         if (state.apiMode === "v2") throw v2Error;
         return fetchCompanyV1(key, v2Error);
       }
+    }
+
+    function hasFinanceFields(data) {
+      const flat = flattenCompanyPayload(data);
+      return numberFrom(
+        flat.daily_income,
+        flat.income,
+        flat.revenue,
+        flat.company?.daily_income,
+        flat.profile?.daily_income,
+        flat.income?.daily
+      ) !== undefined;
     }
 
     async function fetchCompanyV2(key) {
@@ -3175,9 +3194,8 @@
         ["profile.daily_stock_cost", combined.profile?.daily_stock_cost],
         ["stock.daily_cost", combined.stock?.daily_cost]
       ]);
-      const estimatedStock = stockPick.value === undefined ? estimateStockCost(combined.stock) : undefined;
       const income = incomePick.value;
-      const stockCost = stockPick.value ?? estimatedStock;
+      const stockCost = stockPick.value ?? 0;
       const wages = state.employees.reduce((sum, employee) => sum + employee.wage, 0);
       const liveDelta = Number.isFinite(income) ? income - (Number.isFinite(stockCost) ? stockCost : 0) - wages : state.employees.reduce((sum, employee) => sum + employee.profit, 0);
       const last = state.profits[state.profits.length - 1]?.value || 0;
@@ -3186,20 +3204,20 @@
       state.latestBreakdown = {
         sales: Number.isFinite(income) ? income : state.employees.reduce((sum, employee) => sum + employee.profit + employee.wage, 0),
         wages,
-        stock: Number.isFinite(stockCost) ? stockCost : Math.round(Math.max(0, liveDelta + wages) * 0.22),
+        stock: stockCost,
         net: liveDelta,
         perEmployee: state.employees.length ? liveDelta / state.employees.length : 0,
         sources: {
           sales: incomePick.source || "estimated from employee profit + wage",
           wages: "sum(employee.wage)",
-          stock: stockPick.source || (estimatedStock !== undefined ? "estimated from stock item values" : "fallback percentage estimate"),
+          stock: stockPick.source || "not returned by API",
           net: Number.isFinite(income) ? "income - stock - wages" : "sum(employee.profit)"
         }
       };
       state.fieldAudit = [
         { label: "Employees", status: employeeList.length ? "confirmed" : "missing", source: "company employees", value: employeeList.length || 0 },
         { label: "Daily income", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: incomePick.source || "not returned", value: incomePick.value ?? state.latestBreakdown.sales },
-        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : estimatedStock !== undefined ? "estimated" : "fallback", source: stockPick.source || (estimatedStock !== undefined ? "stock item estimate" : "not returned"), value: state.latestBreakdown.stock },
+        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : "missing", source: stockPick.source || "not returned by API", value: state.latestBreakdown.stock },
         { label: "Wages", status: wages ? "confirmed" : "missing", source: "sum employee wages", value: wages },
         { label: "Daily net", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: state.latestBreakdown.sources.net, value: liveDelta },
         { label: "Cache", status: "info", source: "timestamp query added", value: new Date().toLocaleTimeString() }
@@ -3263,15 +3281,6 @@
         trains: numberFrom(raw.trains, raw.trains_received, raw.training, raw.trainings_received) || 0,
         notes: savedNote || raw.notes || "Imported from Torn API. Check role, activity, wage, and profit before making company decisions."
       };
-    }
-
-    function estimateStockCost(stock) {
-      const items = Array.isArray(stock) ? stock : Object.values(stock || {});
-      if (!items.length) return undefined;
-      const total = items.reduce((sum, item) => {
-        return sum + (numberFrom(item.cost, item.price, item.value, item.current_price) || 0) * (numberFrom(item.quantity, item.amount, item.in_stock) || 0);
-      }, 0);
-      return total || undefined;
     }
 
     function detectLiveFields(data) {
