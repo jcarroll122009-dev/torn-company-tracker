@@ -1231,7 +1231,7 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-07-profit-fallback-fix";
+    const appVersion = "2026-07-07-role-fit-judgement";
     const maxWatchCompanies = 50;
     const watchSyncDelayMs = 4000;
 
@@ -1856,14 +1856,27 @@
       const maxSales = Math.max(1, ...state.employees.map((item) => item.sales));
       const maxProfit = Math.max(1, ...state.employees.map((item) => item.profit));
       const maxWage = Math.max(1, ...state.employees.map((item) => item.wage));
+      const profitScore = employee.profit > 0 ? (employee.profit / maxProfit) * 100 : 0;
+      const wagePressure = employee.wage / Math.max(1, employee.profit + employee.wage);
+      const dataQuality = Math.min(100,
+        (employee.effectiveness > 0 ? 22 : 0) +
+        (employee.activity > 0 ? 22 : 0) +
+        (employee.wage > 0 ? 18 : 0) +
+        (employee.sales > 0 ? 18 : 0) +
+        (employee.profit !== 0 ? 20 : 0)
+      );
       return {
         effectiveness: employee.effectiveness,
         activity: employee.activity,
         sales: Math.max(0, Math.min(100, (employee.sales / maxSales) * 100)),
-        profit: Math.max(0, Math.min(100, (employee.profit / maxProfit) * 100)),
+        profit: Math.max(0, Math.min(100, profitScore)),
         lowWage: Math.max(0, Math.min(100, 100 - (employee.wage / maxWage) * 100)),
         lowAddiction: Math.max(0, 100 - employee.addiction * 10),
-        trains: Math.max(0, Math.min(100, 100 - employee.trains * 12))
+        trains: Math.max(0, Math.min(100, 100 - employee.trains * 12)),
+        reliability: Math.max(0, Math.min(100, (employee.activity * 0.6) + (Math.max(0, 100 - employee.addiction * 10) * 0.4))),
+        wagePressure: Math.max(0, Math.min(100, wagePressure * 100)),
+        dataQuality,
+        stars: Math.max(0, Math.min(100, employee.stars * 20))
       };
     }
 
@@ -1871,15 +1884,17 @@
       const profiles = roleProfiles[state.companyPreset] || roleProfiles.custom;
       const metrics = roleMetrics(employee);
       const scored = profiles.map((profile) => {
-        const score = Object.entries(profile.weights).reduce((sum, [metric, weight]) => {
-          return sum + (metrics[metric] || 0) * weight;
-        }, 0) + learnedRoleBoost(profile.name);
-        return { ...profile, score: Math.round(score) };
+        const baseScore = baseRoleScore(metrics, profile);
+        const penalty = rolePenalty(employee, metrics, profile);
+        const learned = learnedRoleBoost(profile.name);
+        const score = Math.round(Math.max(0, Math.min(100, baseScore + learned - penalty)));
+        return { ...profile, baseScore, penalty, learned, score };
       }).sort((a, b) => b.score - a.score);
       const best = scored[0];
       const runnerUp = scored[1];
       const currentMatch = employee.role && employee.role.toLowerCase().includes(best.name.toLowerCase());
       const confidence = roleConfidence(employee, best.score, runnerUp?.score || 0);
+      const signals = roleSignals(employee, metrics, best);
       return {
         bestRole: best.name,
         score: Math.max(0, Math.min(100, best.score)),
@@ -1889,8 +1904,57 @@
         confidence,
         warning: confidence < 55 ? "Low confidence: needs live sync or more history." : confidence < 75 ? "Medium confidence: confirm with another sync." : "High confidence.",
         reason: best.reason,
+        reasons: signals.reasons,
+        concerns: signals.concerns,
+        improvement: Math.max(0, Math.round(best.score - (runnerUp?.score || 0))),
+        dataQuality: metrics.dataQuality,
         metrics
       };
+    }
+
+    function baseRoleScore(metrics, profile) {
+      return Object.entries(profile.weights).reduce((sum, [metric, weight]) => {
+        return sum + (metrics[metric] || 0) * weight;
+      }, 0);
+    }
+
+    function rolePenalty(employee, metrics, profile) {
+      const name = profile.name.toLowerCase();
+      let penalty = 0;
+      if (employee.activity < state.goals.minActivity) penalty += (state.goals.minActivity - employee.activity) * (name.includes("manager") || name.includes("dispatcher") ? 0.55 : 0.35);
+      if (employee.addiction >= 4) penalty += (employee.addiction - 3) * (name.includes("manager") || name.includes("trainer") ? 5 : 3);
+      if (employee.effectiveness < state.goals.avgEffect - 10) penalty += ((state.goals.avgEffect - 10) - employee.effectiveness) * 0.45;
+      if (metrics.wagePressure > 48 && !name.includes("manager")) penalty += (metrics.wagePressure - 48) * 0.25;
+      if ((name.includes("sales") || name.includes("advertiser") || name.includes("performer")) && employee.sales <= 0) penalty += 12;
+      if ((name.includes("trainer") || name.includes("manager")) && employee.effectiveness < state.goals.avgEffect) penalty += 8;
+      if (metrics.dataQuality < 70) penalty += (70 - metrics.dataQuality) * 0.2;
+      return penalty;
+    }
+
+    function roleSignals(employee, metrics, profile) {
+      const strengths = [
+        ["effectiveness", metrics.effectiveness, `${pct(employee.effectiveness)} effectiveness`],
+        ["activity", metrics.activity, `${pct(employee.activity)} activity`],
+        ["sales", metrics.sales, `${employee.sales.toLocaleString()} sales output`],
+        ["profit", metrics.profit, `${money(employee.profit)} profit`],
+        ["lowWage", metrics.lowWage, `${money(employee.wage)} wage pressure is manageable`],
+        ["lowAddiction", metrics.lowAddiction, `${employee.addiction}% addiction`],
+        ["trains", metrics.trains, `${employee.trains} trains used`],
+        ["reliability", metrics.reliability, "reliable activity/addiction mix"]
+      ];
+      const reasons = Object.keys(profile.weights)
+        .map((key) => strengths.find(([metric]) => metric === key))
+        .filter(Boolean)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([, , label]) => label);
+      const concerns = [];
+      if (employee.activity < state.goals.minActivity) concerns.push(`activity below ${pct(state.goals.minActivity)}`);
+      if (employee.addiction >= 4) concerns.push("addiction may drag effectiveness");
+      if (employee.effectiveness < state.goals.avgEffect - 10) concerns.push("effectiveness is weak for this setup");
+      if (metrics.wagePressure > 48) concerns.push("wage pressure is high");
+      if (metrics.dataQuality < 70) concerns.push("limited live data");
+      return { reasons, concerns };
     }
 
     function learnedRoleBoost(roleName) {
@@ -1907,7 +1971,8 @@
       const syncScore = state.apiLastSync ? 28 : 8;
       const dataScore = Math.min(32, (employee.sales > 0 ? 8 : 0) + (employee.profit !== 0 ? 8 : 0) + (employee.activity > 0 ? 8 : 0) + (employee.effectiveness > 0 ? 8 : 0));
       const historyScore = Math.min(20, state.roleChanges.filter((change) => change.after).length * 4);
-      return Math.max(20, Math.min(100, Math.round(syncScore + dataScore + historyScore + spread * 0.8)));
+      const riskPenalty = Math.max(0, (state.goals.minActivity - employee.activity) * 0.3) + (employee.addiction >= 4 ? 8 : 0);
+      return Math.max(20, Math.min(100, Math.round(syncScore + dataScore + historyScore + spread * 0.8 - riskPenalty)));
     }
 
     function buildAlerts() {
@@ -1985,7 +2050,7 @@
         <div class="alert-item ${fit.currentMatch ? "good" : fit.score >= 75 ? "" : "high"}" data-alert-id="${employee.id}">
           <span>Fit ${index + 1}</span>
           <strong>${esc(employee.name)} -> ${esc(fit.bestRole)} (${fit.score}%)</strong>
-          <p>${fit.currentMatch ? "Already looks correctly placed." : `Current: ${employee.role}.`} ${fit.warning} Next best: ${fit.runnerUp} (${fit.runnerUpScore}%). Based on ${fit.reason}.</p>
+          <p>${fit.currentMatch ? "Already looks correctly placed." : `Current: ${employee.role}.`} ${fit.warning} Top signals: ${esc(fit.reasons.join(", ") || fit.reason)}. ${fit.concerns.length ? `Watch: ${esc(fit.concerns.join(", "))}.` : "No major role concerns."} Next: ${esc(fit.runnerUp)} (${fit.runnerUpScore}%).</p>
         </div>
       `).join("");
     }
@@ -2082,9 +2147,7 @@
 
     function scoreForRole(employee, profile) {
       const metrics = roleMetrics(employee);
-      return Object.entries(profile.weights).reduce((sum, [metric, weight]) => {
-        return sum + (metrics[metric] || 0) * weight;
-      }, 0) + learnedRoleBoost(profile.name);
+      return Math.max(0, Math.min(100, baseRoleScore(metrics, profile) + learnedRoleBoost(profile.name) - rolePenalty(employee, metrics, profile)));
     }
 
     function employeeSnapshot(employee) {
@@ -2584,7 +2647,7 @@
                 <div class="detail-card"><span>Addiction</span><strong>${employee.addiction}%</strong><p>${employee.addiction > 4 ? "Rehab recommended before bonus review." : "Currently manageable."}</p></div>
                 <div class="detail-card"><span>Merits</span><strong>${employee.merits}</strong><p>Training value: ${employee.trains} trains this week.</p></div>
                 <div class="detail-card"><span>Train history</span><strong>${employee.trains} this week</strong><p>Next train priority: ${employee.effectiveness < 80 ? "High" : employee.activity < 70 ? "Hold" : "Normal"}.</p></div>
-                <div class="detail-card"><span>Best role</span><strong>${esc(fit.bestRole)} (${fit.score}%)</strong><p>${fit.currentMatch ? "Current role matches recommendation." : `Current role: ${esc(employee.role)}. Runner-up: ${esc(fit.runnerUp)}.`} ${fit.warning}</p></div>
+                <div class="detail-card"><span>Best role</span><strong>${esc(fit.bestRole)} (${fit.score}%)</strong><p>${fit.currentMatch ? "Current role matches recommendation." : `Current role: ${esc(employee.role)}. Runner-up: ${esc(fit.runnerUp)}.`} ${fit.warning} Signals: ${esc(fit.reasons.join(", ") || fit.reason)}.</p></div>
                 <div class="detail-card"><span>Risk score</span><strong>${pct(risk)}</strong><p>${esc(employee.notes)}</p></div>
                 <div class="detail-card"><span>Role learning</span><strong>${fit.confidence}% confidence</strong><p><button class="text-button" data-role-change-id="${employee.id}" type="button">Mark Changed</button></p></div>
                 <div class="detail-card wide"><span>Manager notes</span><textarea data-note-id="${employee.id}" placeholder="Add a private note for this employee">${esc(employee.notes)}</textarea></div>
@@ -2605,6 +2668,8 @@
       els.readout.innerHTML = `
         <div class="readout-row"><span>Position</span><strong>${esc(employee.role)}</strong></div>
         <div class="readout-row"><span>Best role</span><strong>${esc(fit.bestRole)} ${fit.score}%</strong></div>
+        <div class="readout-row"><span>Role confidence</span><strong>${fit.confidence}%</strong></div>
+        <div class="readout-row"><span>Role concern</span><strong>${esc(fit.concerns[0] || "Clear")}</strong></div>
         <div class="readout-row"><span>Effectiveness</span><strong>${pct(employee.effectiveness)}</strong></div>
         <div class="readout-row"><span>Daily sales</span><strong>${employee.sales.toLocaleString()}</strong></div>
         <div class="readout-row"><span>Wage</span><strong>${money(employee.wage)}</strong></div>
