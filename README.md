@@ -54,6 +54,8 @@ Use Edit next to a saved company if the name or API key changes.
 
 - The profit chart records live API sync points automatically.
 - Company Profit History stores snapshots for the main company and extra companies.
+- Stock cost is included in profit when Torn returns a daily stock/order cost field.
+- Current stock inventory value is not counted as daily stock cost.
 - Snapshots let you look back at older profit, sales, wages, stock cost, employees, and confidence data.
 - Use Export Profit CSV or Export Company History CSV if you want to save the data outside the browser.
 

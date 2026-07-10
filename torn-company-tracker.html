@@ -1231,7 +1231,7 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-07-role-fit-judgement";
+    const appVersion = "2026-07-10-api-stock-cost";
     const maxWatchCompanies = 50;
     const watchSyncDelayMs = 4000;
 
@@ -2336,13 +2336,7 @@
         ["profile.daily_income", combined.profile?.daily_income],
         ["income.daily", combined.income?.daily]
       ]);
-      const stockPick = pickNumber("Stock cost", [
-        ["daily_stock_cost", combined.daily_stock_cost],
-        ["stock_cost", combined.stock_cost],
-        ["company.daily_stock_cost", combined.company?.daily_stock_cost],
-        ["profile.daily_stock_cost", combined.profile?.daily_stock_cost],
-        ["stock.daily_cost", combined.stock?.daily_cost]
-      ]);
+      const stockPick = pickNumber("Stock cost", stockCostCandidates(combined));
       const stockCost = stockPick.value ?? 0;
       const wages = employees.reduce((sum, employee) => sum + employee.wage, 0);
       const employeeProfit = employees.reduce((sum, employee) => sum + employee.profit, 0);
@@ -3252,13 +3246,7 @@
         ["profile.daily_income", combined.profile?.daily_income],
         ["income.daily", combined.income?.daily]
       ]);
-      const stockPick = pickNumber("Stock cost", [
-        ["daily_stock_cost", combined.daily_stock_cost],
-        ["stock_cost", combined.stock_cost],
-        ["company.daily_stock_cost", combined.company?.daily_stock_cost],
-        ["profile.daily_stock_cost", combined.profile?.daily_stock_cost],
-        ["stock.daily_cost", combined.stock?.daily_cost]
-      ]);
+      const stockPick = pickNumber("Stock cost", stockCostCandidates(combined));
       const income = incomePick.value;
       const stockCost = stockPick.value ?? 0;
       const wages = state.employees.reduce((sum, employee) => sum + employee.wage, 0);
@@ -3355,9 +3343,43 @@
       if (flat?.employees || flat?.company_employees || flat?.employee_list) fields.push("employees");
       if (flat?.stock || flat?.items) fields.push("stock");
       if (numberFrom(flat?.daily_income, flat?.income, flat?.revenue, flat?.profile?.daily_income) !== undefined) fields.push("income");
-      if (numberFrom(flat?.daily_stock_cost, flat?.stock_cost, flat?.profile?.daily_stock_cost) !== undefined) fields.push("stock cost");
+      if (pickNumber("Stock cost", stockCostCandidates(flat)).value !== undefined) fields.push("stock cost");
       if (flat?.timestamp) fields.push("timestamp");
       return [...new Set(fields)];
+    }
+
+    function stockCostCandidates(data) {
+      const detailed = data?.detailed || data?.details || data?.company?.detailed || data?.profile?.detailed || {};
+      const finance = data?.finance || data?.financials || data?.company?.finance || data?.profile?.finance || {};
+      const orders = data?.orders || data?.stock_orders || data?.company?.orders || data?.profile?.orders || {};
+      const stock = data?.stock || {};
+      return [
+        ["daily_stock_cost", data?.daily_stock_cost],
+        ["stock_cost", data?.stock_cost],
+        ["stock_order_cost", data?.stock_order_cost],
+        ["stock_ordered_cost", data?.stock_ordered_cost],
+        ["daily_stock_order_cost", data?.daily_stock_order_cost],
+        ["daily_stock_spend", data?.daily_stock_spend],
+        ["company.daily_stock_cost", data?.company?.daily_stock_cost],
+        ["company.stock_cost", data?.company?.stock_cost],
+        ["company.stock_order_cost", data?.company?.stock_order_cost],
+        ["profile.daily_stock_cost", data?.profile?.daily_stock_cost],
+        ["profile.stock_cost", data?.profile?.stock_cost],
+        ["profile.stock_order_cost", data?.profile?.stock_order_cost],
+        ["detailed.daily_stock_cost", detailed.daily_stock_cost],
+        ["detailed.stock_cost", detailed.stock_cost],
+        ["detailed.stock_order_cost", detailed.stock_order_cost],
+        ["finance.daily_stock_cost", finance.daily_stock_cost],
+        ["finance.stock_cost", finance.stock_cost],
+        ["finance.stock_order_cost", finance.stock_order_cost],
+        ["orders.daily_cost", orders.daily_cost],
+        ["orders.stock_cost", orders.stock_cost],
+        ["orders.total_cost", orders.total_cost],
+        ["stock.daily_cost", stock.daily_cost],
+        ["stock.order_cost", stock.order_cost],
+        ["stock.ordered_cost", stock.ordered_cost],
+        ["stock.daily_order_cost", stock.daily_order_cost]
+      ];
     }
 
     function numberFrom(...values) {
