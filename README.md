@@ -32,13 +32,9 @@ https://jcarroll122009-dev.github.io/torn-company-tracker/torn-company-tracker.h
    - API v2 only
    - API v1 only
 4. Pick an auto-sync interval or turn auto-sync off.
-5. Pick a Stock cost mode:
-   - API only: uses Torn stock cost only when Torn returns it.
-   - Percent of income: estimates stock cost from each company's income.
-   - Manual daily amount: uses your entered stock cost when Torn does not return one.
-6. Press Sync to load your main company data.
-7. Use the profit chart, employee table, alerts, and Company Readout panel to review performance.
-8. Click an employee name to open the drop-down record for that worker.
+5. Press Sync to load your main company data.
+6. Use the profit chart, employee table, alerts, and Company Readout panel to review performance.
+7. Click an employee name to open the drop-down record for that worker.
 
 ## Extra Companies
 
@@ -58,7 +54,6 @@ Use Edit next to a saved company if the name or API key changes.
 
 - The profit chart records live API sync points automatically.
 - Company Profit History stores snapshots for the main company and extra companies.
-- Stock cost can be included in profit by using Torn's returned value, a percent-of-income estimate, or a manual daily amount.
 - Snapshots let you look back at older profit, sales, wages, stock cost, employees, and confidence data.
 - Use Export Profit CSV or Export Company History CSV if you want to save the data outside the browser.
 

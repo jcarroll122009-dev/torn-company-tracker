@@ -1195,16 +1195,6 @@
               <option value="10">Auto-sync every 10 min</option>
               <option value="30">Auto-sync every 30 min</option>
             </select>
-            <select id="stockMode" aria-label="Stock cost mode">
-              <option value="api">Stock cost: API only</option>
-              <option value="percent">Stock cost: percent of income</option>
-              <option value="manual">Stock cost: manual daily amount</option>
-            </select>
-            <div class="api-grid three">
-              <input id="stockPercent" type="number" min="0" max="100" step="0.1" placeholder="Stock % of income">
-              <input id="stockManual" type="number" min="0" step="1" placeholder="Manual daily stock cost">
-              <button class="text-button" id="applyStockSettings" type="button">Apply Stock</button>
-            </div>
             <div class="switch-row">
               <label for="realDataOnly">Real data only mode</label>
               <input id="realDataOnly" type="checkbox">
@@ -1241,7 +1231,7 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-07-stock-cost-controls";
+    const appVersion = "2026-07-07-role-fit-judgement";
     const maxWatchCompanies = 50;
     const watchSyncDelayMs = 4000;
 
@@ -1310,9 +1300,6 @@
       fieldAudit: JSON.parse(localStorage.getItem("tcFieldAudit") || "null") || [],
       apiMode: localStorage.getItem("tcApiMode") || "auto",
       apiInterval: Number(localStorage.getItem("tcApiInterval") || 10),
-      stockMode: localStorage.getItem("tcStockMode") || "api",
-      stockPercent: Number(localStorage.getItem("tcStockPercent") || 0),
-      stockManual: Number(localStorage.getItem("tcStockManual") || 0),
       useProxy: localStorage.getItem("tcUseProxy") === "true",
       proxyUrl: localStorage.getItem("tcProxyUrl") || "",
       profiles: JSON.parse(localStorage.getItem("tcProfiles") || "null") || {},
@@ -1403,10 +1390,6 @@
       saveProfile: document.getElementById("saveProfile"),
       apiMode: document.getElementById("apiMode"),
       apiInterval: document.getElementById("apiInterval"),
-      stockMode: document.getElementById("stockMode"),
-      stockPercent: document.getElementById("stockPercent"),
-      stockManual: document.getElementById("stockManual"),
-      applyStockSettings: document.getElementById("applyStockSettings"),
       useProxy: document.getElementById("useProxy"),
       proxyUrl: document.getElementById("proxyUrl"),
       realDataOnly: document.getElementById("realDataOnly"),
@@ -1561,27 +1544,6 @@
         net: Number(summary.net) || 0,
         perEmployee: Number(summary.perEmployee) || 0
       };
-    }
-
-    function resolvedStockCost(stockPick, income) {
-      if (Number.isFinite(stockPick.value)) {
-        return { value: stockPick.value, status: "confirmed", source: stockPick.source };
-      }
-      if (state.stockMode === "percent" && Number.isFinite(income) && state.stockPercent > 0) {
-        return {
-          value: Math.round(income * (state.stockPercent / 100)),
-          status: "estimated",
-          source: `${state.stockPercent}% of income setting`
-        };
-      }
-      if (state.stockMode === "manual" && state.stockManual > 0) {
-        return {
-          value: Math.round(state.stockManual),
-          status: "manual",
-          source: "manual daily stock cost setting"
-        };
-      }
-      return { value: 0, status: "missing", source: "not returned by API" };
     }
 
     function allCompaniesBreakdown() {
@@ -2210,9 +2172,6 @@
         apiPermissions: state.apiPermissions,
         apiMode: state.apiMode,
         apiInterval: state.apiInterval,
-        stockMode: state.stockMode,
-        stockPercent: state.stockPercent,
-        stockManual: state.stockManual,
         useProxy: state.useProxy,
         proxyUrl: state.proxyUrl,
         realDataOnly: state.realDataOnly,
@@ -2240,9 +2199,6 @@
         apiPermissions: profile.apiPermissions || null,
         apiMode: profile.apiMode || "auto",
         apiInterval: Number(profile.apiInterval || 10),
-        stockMode: profile.stockMode || "api",
-        stockPercent: Number(profile.stockPercent || 0),
-        stockManual: Number(profile.stockManual || 0),
         useProxy: Boolean(profile.useProxy),
         proxyUrl: profile.proxyUrl || "",
         realDataOnly: Boolean(profile.realDataOnly),
@@ -2387,8 +2343,7 @@
         ["profile.daily_stock_cost", combined.profile?.daily_stock_cost],
         ["stock.daily_cost", combined.stock?.daily_cost]
       ]);
-      const stockCostPick = resolvedStockCost(stockPick, incomePick.value);
-      const stockCost = stockCostPick.value;
+      const stockCost = stockPick.value ?? 0;
       const wages = employees.reduce((sum, employee) => sum + employee.wage, 0);
       const employeeProfit = employees.reduce((sum, employee) => sum + employee.profit, 0);
       const net = Number.isFinite(incomePick.value) ? incomePick.value - stockCost - wages : employeeProfit;
@@ -2406,7 +2361,7 @@
       const audit = [
         { label: "Employees", status: employeeList.length ? "confirmed" : "missing", source: "company employees", value: employeeList.length || 0 },
         { label: "Daily income", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: incomePick.source || "not returned", value: incomePick.value ?? sales },
-        { label: "Stock cost", status: stockCostPick.status, source: stockCostPick.source, value: stockCost },
+        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : "missing", source: stockPick.source || "not returned by API", value: stockCost },
         { label: "Wages", status: wages ? "confirmed" : "missing", source: "sum employee wages", value: wages },
         { label: "Daily net", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: Number.isFinite(incomePick.value) ? "income - stock - wages" : "sum(employee.profit)", value: net }
       ];
@@ -2733,11 +2688,6 @@
       }
       els.apiMode.value = state.apiMode;
       els.apiInterval.value = String(state.apiInterval);
-      els.stockMode.value = state.stockMode;
-      els.stockPercent.value = state.stockPercent || "";
-      els.stockManual.value = state.stockManual || "";
-      els.stockPercent.disabled = state.stockMode !== "percent";
-      els.stockManual.disabled = state.stockMode !== "manual";
       els.useProxy.checked = state.useProxy;
       els.proxyUrl.value = state.proxyUrl;
       els.apiStatus.classList.remove("good", "bad");
@@ -2909,9 +2859,6 @@
         tcFieldAudit: JSON.stringify(state.fieldAudit),
         tcApiMode: state.apiMode,
         tcApiInterval: String(state.apiInterval),
-        tcStockMode: state.stockMode,
-        tcStockPercent: String(state.stockPercent),
-        tcStockManual: String(state.stockManual),
         tcUseProxy: String(state.useProxy),
         tcProxyUrl: state.proxyUrl,
         tcRealDataOnly: String(state.realDataOnly),
@@ -3313,8 +3260,7 @@
         ["stock.daily_cost", combined.stock?.daily_cost]
       ]);
       const income = incomePick.value;
-      const stockCostPick = resolvedStockCost(stockPick, income);
-      const stockCost = stockCostPick.value;
+      const stockCost = stockPick.value ?? 0;
       const wages = state.employees.reduce((sum, employee) => sum + employee.wage, 0);
       const liveDelta = Number.isFinite(income) ? income - (Number.isFinite(stockCost) ? stockCost : 0) - wages : state.employees.reduce((sum, employee) => sum + employee.profit, 0);
       const last = state.profits[state.profits.length - 1]?.value || 0;
@@ -3329,14 +3275,14 @@
         sources: {
           sales: incomePick.source || "estimated from employee profit + wage",
           wages: "sum(employee.wage)",
-          stock: stockCostPick.source,
+          stock: stockPick.source || "not returned by API",
           net: Number.isFinite(income) ? "income - stock - wages" : "sum(employee.profit)"
         }
       };
       state.fieldAudit = [
         { label: "Employees", status: employeeList.length ? "confirmed" : "missing", source: "company employees", value: employeeList.length || 0 },
         { label: "Daily income", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: incomePick.source || "not returned", value: incomePick.value ?? state.latestBreakdown.sales },
-        { label: "Stock cost", status: stockCostPick.status, source: stockCostPick.source, value: state.latestBreakdown.stock },
+        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : "missing", source: stockPick.source || "not returned by API", value: state.latestBreakdown.stock },
         { label: "Wages", status: wages ? "confirmed" : "missing", source: "sum employee wages", value: wages },
         { label: "Daily net", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: state.latestBreakdown.sources.net, value: liveDelta },
         { label: "Cache", status: "info", source: "timestamp query added", value: new Date().toLocaleTimeString() }
@@ -3749,22 +3695,6 @@
       renderApiStatus();
       updateLiveStatus();
       persist();
-    });
-    function saveStockSettings() {
-      state.stockMode = els.stockMode.value;
-      state.stockPercent = Math.max(0, Number(els.stockPercent.value) || 0);
-      state.stockManual = Math.max(0, Number(els.stockManual.value) || 0);
-      if (state.apiKey && state.apiLastSync) {
-        state.apiError = "";
-      }
-      renderAll();
-    }
-    els.stockMode.addEventListener("change", saveStockSettings);
-    els.stockPercent.addEventListener("change", saveStockSettings);
-    els.stockManual.addEventListener("change", saveStockSettings);
-    els.applyStockSettings.addEventListener("click", () => {
-      saveStockSettings();
-      if (state.apiKey) syncTornApi();
     });
     els.useProxy.checked = state.useProxy;
     els.useProxy.addEventListener("change", () => {
