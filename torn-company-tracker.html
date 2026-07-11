@@ -1231,7 +1231,7 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-10-api-stock-cost";
+    const appVersion = "2026-07-10-stock-detailed-merge";
     const maxWatchCompanies = 50;
     const watchSyncDelayMs = 4000;
 
@@ -2355,7 +2355,7 @@
       const audit = [
         { label: "Employees", status: employeeList.length ? "confirmed" : "missing", source: "company employees", value: employeeList.length || 0 },
         { label: "Daily income", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: incomePick.source || "not returned", value: incomePick.value ?? sales },
-        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : "missing", source: stockPick.source || "not returned by API", value: stockCost },
+        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : "missing", source: stockPick.source || "not returned by API/detailed fallback", value: stockCost },
         { label: "Wages", status: wages ? "confirmed" : "missing", source: "sum employee wages", value: wages },
         { label: "Daily net", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: Number.isFinite(incomePick.value) ? "income - stock - wages" : "sum(employee.profit)", value: net }
       ];
@@ -3139,11 +3139,11 @@
       if (state.apiMode === "v1") return fetchCompanyV1(key);
       try {
         const v2Data = await fetchCompanyV2(key);
-        if (state.apiMode === "v2" || hasFinanceFields(v2Data)) return v2Data;
+        if (state.apiMode === "v2") return v2Data;
+        if (hasFinanceFields(v2Data) && hasStockCostFields(v2Data)) return v2Data;
         try {
           const v1Data = await fetchCompanyV1(key);
-          v1Data.source = "API v1 finance fallback";
-          return v1Data;
+          return mergeCompanyApiData(v2Data, v1Data);
         } catch {
           return v2Data;
         }
@@ -3163,6 +3163,22 @@
         flat.profile?.daily_income,
         flat.income?.daily
       ) !== undefined;
+    }
+
+    function hasStockCostFields(data) {
+      return pickNumber("Stock cost", stockCostCandidates(flattenCompanyPayload(data))).value !== undefined;
+    }
+
+    function mergeCompanyApiData(v2Data, v1Data) {
+      return {
+        source: "API v2 + v1 detailed",
+        profile: v2Data.profile,
+        employees: v2Data.employees,
+        stock: v2Data.stock,
+        timestamp: v2Data.timestamp,
+        legacy: v1Data,
+        fields: detectLiveFields({ source: "API v2 + v1 detailed", ...v2Data, legacy: v1Data })
+      };
     }
 
     async function fetchCompanyV2(key) {
@@ -3263,14 +3279,14 @@
         sources: {
           sales: incomePick.source || "estimated from employee profit + wage",
           wages: "sum(employee.wage)",
-          stock: stockPick.source || "not returned by API",
+          stock: stockPick.source || "not returned by API/detailed fallback",
           net: Number.isFinite(income) ? "income - stock - wages" : "sum(employee.profit)"
         }
       };
       state.fieldAudit = [
         { label: "Employees", status: employeeList.length ? "confirmed" : "missing", source: "company employees", value: employeeList.length || 0 },
         { label: "Daily income", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: incomePick.source || "not returned", value: incomePick.value ?? state.latestBreakdown.sales },
-        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : "missing", source: stockPick.source || "not returned by API", value: state.latestBreakdown.stock },
+        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : "missing", source: stockPick.source || "not returned by API/detailed fallback", value: state.latestBreakdown.stock },
         { label: "Wages", status: wages ? "confirmed" : "missing", source: "sum employee wages", value: wages },
         { label: "Daily net", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: state.latestBreakdown.sources.net, value: liveDelta },
         { label: "Cache", status: "info", source: "timestamp query added", value: new Date().toLocaleTimeString() }
@@ -3286,15 +3302,18 @@
     }
 
     function flattenCompanyPayload(data) {
-      if (data.source === "API v2") {
+      if (data.source === "API v2" || data.source === "API v2 + v1 detailed") {
+        const legacy = data.legacy || {};
         return {
           source: data.source,
           fields: data.fields,
           timestamp: data.timestamp,
+          ...legacy,
           ...(data.profile?.company || data.profile || {}),
           profile: data.profile?.company || data.profile || {},
           employees: data.employees?.employees || data.employees?.company_employees || data.employees || {},
-          stock: data.stock?.stock || data.stock?.items || data.stock || {}
+          stock: data.stock?.stock || data.stock?.items || data.stock || {},
+          legacy
         };
       }
       return data;
@@ -3378,8 +3397,36 @@
         ["stock.daily_cost", stock.daily_cost],
         ["stock.order_cost", stock.order_cost],
         ["stock.ordered_cost", stock.ordered_cost],
-        ["stock.daily_order_cost", stock.daily_order_cost]
+        ["stock.daily_order_cost", stock.daily_order_cost],
+        ...deepStockCostCandidates(data)
       ];
+    }
+
+    function deepStockCostCandidates(data) {
+      const candidates = [];
+      const seen = new Set();
+      const walk = (value, path = "") => {
+        if (!value || typeof value !== "object" || seen.has(value)) return;
+        seen.add(value);
+        Object.entries(value).forEach(([key, child]) => {
+          const nextPath = path ? `${path}.${key}` : key;
+          if (typeof child === "number" || typeof child === "string") {
+            if (isLikelyStockCostPath(nextPath)) candidates.push([nextPath, child]);
+            return;
+          }
+          walk(child, nextPath);
+        });
+      };
+      walk(data);
+      return candidates;
+    }
+
+    function isLikelyStockCostPath(path) {
+      const clean = path.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+      const hasStock = clean.includes("stock") || clean.includes("order");
+      const hasCost = clean.includes("cost") || clean.includes("spend") || clean.includes("expense") || clean.includes("spent");
+      const isInventoryValue = clean.includes("value") || clean.includes("worth") || clean.includes("price") || clean.includes("quantity") || clean.includes("amount") || clean.includes("in_stock") || clean.includes("current_price");
+      return hasStock && hasCost && !isInventoryValue;
     }
 
     function numberFrom(...values) {
