@@ -1231,7 +1231,7 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-10-stock-detailed-merge";
+    const appVersion = "2026-07-10-strict-stock-cost";
     const maxWatchCompanies = 50;
     const watchSyncDelayMs = 4000;
 
@@ -2355,7 +2355,7 @@
       const audit = [
         { label: "Employees", status: employeeList.length ? "confirmed" : "missing", source: "company employees", value: employeeList.length || 0 },
         { label: "Daily income", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: incomePick.source || "not returned", value: incomePick.value ?? sales },
-        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : "missing", source: stockPick.source || "not returned by API/detailed fallback", value: stockCost },
+        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : "missing", source: stockPick.source || "daily stock cost not returned; generic stock/order fields ignored", value: stockCost },
         { label: "Wages", status: wages ? "confirmed" : "missing", source: "sum employee wages", value: wages },
         { label: "Daily net", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: Number.isFinite(incomePick.value) ? "income - stock - wages" : "sum(employee.profit)", value: net }
       ];
@@ -3279,14 +3279,14 @@
         sources: {
           sales: incomePick.source || "estimated from employee profit + wage",
           wages: "sum(employee.wage)",
-          stock: stockPick.source || "not returned by API/detailed fallback",
+          stock: stockPick.source || "daily stock cost not returned; generic stock/order fields ignored",
           net: Number.isFinite(income) ? "income - stock - wages" : "sum(employee.profit)"
         }
       };
       state.fieldAudit = [
         { label: "Employees", status: employeeList.length ? "confirmed" : "missing", source: "company employees", value: employeeList.length || 0 },
         { label: "Daily income", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: incomePick.source || "not returned", value: incomePick.value ?? state.latestBreakdown.sales },
-        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : "missing", source: stockPick.source || "not returned by API/detailed fallback", value: state.latestBreakdown.stock },
+        { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : "missing", source: stockPick.source || "daily stock cost not returned; generic stock/order fields ignored", value: state.latestBreakdown.stock },
         { label: "Wages", status: wages ? "confirmed" : "missing", source: "sum employee wages", value: wages },
         { label: "Daily net", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: state.latestBreakdown.sources.net, value: liveDelta },
         { label: "Cache", status: "info", source: "timestamp query added", value: new Date().toLocaleTimeString() }
@@ -3370,34 +3370,22 @@
     function stockCostCandidates(data) {
       const detailed = data?.detailed || data?.details || data?.company?.detailed || data?.profile?.detailed || {};
       const finance = data?.finance || data?.financials || data?.company?.finance || data?.profile?.finance || {};
-      const orders = data?.orders || data?.stock_orders || data?.company?.orders || data?.profile?.orders || {};
-      const stock = data?.stock || {};
       return [
         ["daily_stock_cost", data?.daily_stock_cost],
-        ["stock_cost", data?.stock_cost],
-        ["stock_order_cost", data?.stock_order_cost],
-        ["stock_ordered_cost", data?.stock_ordered_cost],
         ["daily_stock_order_cost", data?.daily_stock_order_cost],
         ["daily_stock_spend", data?.daily_stock_spend],
         ["company.daily_stock_cost", data?.company?.daily_stock_cost],
-        ["company.stock_cost", data?.company?.stock_cost],
-        ["company.stock_order_cost", data?.company?.stock_order_cost],
+        ["company.daily_stock_order_cost", data?.company?.daily_stock_order_cost],
+        ["company.daily_stock_spend", data?.company?.daily_stock_spend],
         ["profile.daily_stock_cost", data?.profile?.daily_stock_cost],
-        ["profile.stock_cost", data?.profile?.stock_cost],
-        ["profile.stock_order_cost", data?.profile?.stock_order_cost],
+        ["profile.daily_stock_order_cost", data?.profile?.daily_stock_order_cost],
+        ["profile.daily_stock_spend", data?.profile?.daily_stock_spend],
         ["detailed.daily_stock_cost", detailed.daily_stock_cost],
-        ["detailed.stock_cost", detailed.stock_cost],
-        ["detailed.stock_order_cost", detailed.stock_order_cost],
+        ["detailed.daily_stock_order_cost", detailed.daily_stock_order_cost],
+        ["detailed.daily_stock_spend", detailed.daily_stock_spend],
         ["finance.daily_stock_cost", finance.daily_stock_cost],
-        ["finance.stock_cost", finance.stock_cost],
-        ["finance.stock_order_cost", finance.stock_order_cost],
-        ["orders.daily_cost", orders.daily_cost],
-        ["orders.stock_cost", orders.stock_cost],
-        ["orders.total_cost", orders.total_cost],
-        ["stock.daily_cost", stock.daily_cost],
-        ["stock.order_cost", stock.order_cost],
-        ["stock.ordered_cost", stock.ordered_cost],
-        ["stock.daily_order_cost", stock.daily_order_cost],
+        ["finance.daily_stock_order_cost", finance.daily_stock_order_cost],
+        ["finance.daily_stock_spend", finance.daily_stock_spend],
         ...deepStockCostCandidates(data)
       ];
     }
@@ -3423,10 +3411,11 @@
 
     function isLikelyStockCostPath(path) {
       const clean = path.toLowerCase().replace(/[^a-z0-9]+/g, "_");
-      const hasStock = clean.includes("stock") || clean.includes("order");
+      const hasStock = clean.includes("stock");
+      const hasDaily = clean.includes("daily") || clean.includes("day");
       const hasCost = clean.includes("cost") || clean.includes("spend") || clean.includes("expense") || clean.includes("spent");
       const isInventoryValue = clean.includes("value") || clean.includes("worth") || clean.includes("price") || clean.includes("quantity") || clean.includes("amount") || clean.includes("in_stock") || clean.includes("current_price");
-      return hasStock && hasCost && !isInventoryValue;
+      return hasStock && hasDaily && hasCost && !isInventoryValue;
     }
 
     function numberFrom(...values) {
