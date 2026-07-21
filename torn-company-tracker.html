@@ -990,6 +990,16 @@
           <div class="watch-compare" id="watchCompare"></div>
         </section>
 
+        <section class="panel" id="weeklyProfitPanel" aria-label="Weekly profit summary">
+          <div class="panel-head">
+            <h2>Weekly Profit Summary</h2>
+            <div class="panel-actions">
+              <button class="text-button" id="jumpWeeklyHistory" type="button">History</button>
+            </div>
+          </div>
+          <div class="watch-compare" id="weeklyProfitList"></div>
+        </section>
+
         <section class="panel" id="companyHistoryPanel" aria-label="Company profit history">
           <div class="panel-head">
             <h2>Company Profit History</h2>
@@ -1231,7 +1241,7 @@
   </main>
 
   <script>
-    const appVersion = "2026-07-10-strict-stock-cost";
+    const appVersion = "2026-07-20-weekly-exact-stock";
     const maxWatchCompanies = 50;
     const watchSyncDelayMs = 4000;
 
@@ -1361,6 +1371,7 @@
       dataAuditList: document.getElementById("dataAuditList"),
       watchCompare: document.getElementById("watchCompare"),
       historyList: document.getElementById("historyList"),
+      weeklyProfitList: document.getElementById("weeklyProfitList"),
       companyHistoryList: document.getElementById("companyHistoryList"),
       miniCanvas: document.getElementById("miniCanvas"),
       readout: document.getElementById("readout"),
@@ -1381,6 +1392,7 @@
       exportCompanyHistory: document.getElementById("exportCompanyHistory"),
       clearCompanyHistory: document.getElementById("clearCompanyHistory"),
       jumpCompanyHistory: document.getElementById("jumpCompanyHistory"),
+      jumpWeeklyHistory: document.getElementById("jumpWeeklyHistory"),
       apiKeyInput: document.getElementById("apiKeyInput"),
       syncApi: document.getElementById("syncApi"),
       clearApi: document.getElementById("clearApi"),
@@ -1498,7 +1510,9 @@
         wages: Number(state.latestBreakdown.wages) || 0,
         stock: Number(state.latestBreakdown.stock) || 0,
         net: Number(state.latestBreakdown.net) || 0,
-        perEmployee: Number(state.latestBreakdown.perEmployee) || 0
+        perEmployee: Number(state.latestBreakdown.perEmployee) || 0,
+        stockStatus: state.latestBreakdown.stockStatus || "missing",
+        stockSource: state.latestBreakdown.sources?.stock || "daily stock cost not returned; generic stock/order fields ignored"
       };
       return {
         name: state.apiMeta?.companyName || "Main company",
@@ -1546,6 +1560,26 @@
       };
     }
 
+    function hasExactStockCost(item) {
+      if (item?.stockStatus === "confirmed") return true;
+      if (item?.stockStatus === "missing") return false;
+      return Boolean(item?.stockSource && item.stockSource !== "daily stock cost not returned; generic stock/order fields ignored");
+    }
+
+    function profitQualityLabel(item) {
+      return hasExactStockCost(item) ? "Exact net" : "Partial net";
+    }
+
+    function stockDisplay(item) {
+      return hasExactStockCost(item)
+        ? money(Number(item?.stock) || 0)
+        : `${money(Number(item?.stock) || 0)} missing`;
+    }
+
+    function stockMissingNote(item) {
+      return hasExactStockCost(item) ? "" : " Stock cost missing, so net excludes stock spending.";
+    }
+
     function allCompaniesBreakdown() {
       const companies = syncedCompanySummaries();
       if (!companies.length) return null;
@@ -1556,8 +1590,9 @@
         sum.stock += breakdown.stock;
         sum.net += breakdown.net;
         sum.employees += Number(company.summary.employees) || 0;
+        sum.missingStock += hasExactStockCost(company.summary) ? 0 : 1;
         return sum;
-      }, { sales: 0, wages: 0, stock: 0, net: 0, employees: 0 });
+      }, { sales: 0, wages: 0, stock: 0, net: 0, employees: 0, missingStock: 0 });
       return {
         sales: totals.sales,
         wages: totals.wages,
@@ -1565,7 +1600,9 @@
         net: totals.net,
         perEmployee: totals.employees ? totals.net / totals.employees : 0,
         companyCount: companies.length,
-        employees: totals.employees
+        employees: totals.employees,
+        stockStatus: totals.missingStock ? "missing" : "confirmed",
+        stockSource: totals.missingStock ? `${totals.missingStock} company stock costs missing` : "all company stock costs confirmed"
       };
     }
 
@@ -2357,7 +2394,7 @@
         { label: "Daily income", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: incomePick.source || "not returned", value: incomePick.value ?? sales },
         { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : "missing", source: stockPick.source || "daily stock cost not returned; generic stock/order fields ignored", value: stockCost },
         { label: "Wages", status: wages ? "confirmed" : "missing", source: "sum employee wages", value: wages },
-        { label: "Daily net", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: Number.isFinite(incomePick.value) ? "income - stock - wages" : "sum(employee.profit)", value: net }
+        { label: "Daily net", status: incomePick.value !== undefined && stockPick.value !== undefined ? "confirmed" : "estimated", source: Number.isFinite(incomePick.value) ? (stockPick.value !== undefined ? "income - stock - wages" : "income - wages; stock cost missing") : "sum(employee.profit)", value: net }
       ];
       const confirmed = audit.filter((item) => item.status === "confirmed").length;
       return {
@@ -2368,6 +2405,8 @@
         sales,
         wages,
         stock: stockCost,
+        stockStatus: stockPick.value !== undefined ? "confirmed" : "missing",
+        stockSource: stockPick.source || "daily stock cost not returned; generic stock/order fields ignored",
         net,
         perEmployee: employees.length ? net / employees.length : 0,
         avgEffect: averages.avgEffect,
@@ -2429,6 +2468,8 @@
           sales: total.sales,
           wages: total.wages,
           stock: total.stock,
+          stockStatus: total.stockStatus,
+          stockSource: total.stockSource,
           net: total.net,
           perEmployee: total.perEmployee,
           avgEffect: weightedAvg("avgEffect"),
@@ -2462,10 +2503,10 @@
               <div><span>Activity</span><strong>${pct(summary.avgActivity)}</strong></div>
               <div><span>Sales</span><strong>${money(summary.sales)}</strong></div>
               <div><span>Wages</span><strong>${money(summary.wages)}</strong></div>
-              <div><span>Stock</span><strong>${money(summary.stock)}</strong></div>
+              <div><span>Stock</span><strong>${stockDisplay(summary)}</strong></div>
               <div><span>Confidence</span><strong>${pct(summary.confidence)}</strong></div>
             </div>
-            <p class="notes">${summary.alertCount} workers need attention. Fields: ${summary.fields?.length ? esc(summary.fields.join(", ")) : "limited response"}.</p>
+            <p class="notes">${profitQualityLabel(summary)}. ${summary.alertCount} workers need attention. Fields: ${summary.fields?.length ? esc(summary.fields.join(", ")) : "limited response"}.${stockMissingNote(summary)}</p>
           </div>
         `;
       }).join("") : `<div class="history-item"><span>No company comparison yet</span><strong>Add up to ${maxWatchCompanies} API keys</strong><p>Add company keys in the More Companies panel, then press Sync All.</p></div>`;
@@ -2478,10 +2519,10 @@
         return `
           <tr>
             <td>${esc(summary.name || company.label)}</td>
-            <td><strong class="delta ${summary.net >= 0 ? "good" : "bad"}">${money(summary.net)}</strong></td>
+            <td><strong class="delta ${summary.net >= 0 ? "good" : "bad"}">${money(summary.net)}</strong><br><span>${profitQualityLabel(summary)}</span></td>
             <td>${money(summary.sales)}</td>
             <td>${money(summary.wages)}</td>
-            <td>${money(summary.stock)}</td>
+            <td>${stockDisplay(summary)}</td>
             <td>${summary.employees}</td>
             <td>${money(summary.perEmployee)}</td>
             <td>${company.lastSync ? new Date(company.lastSync).toLocaleString() : "Not synced"}</td>
@@ -2491,10 +2532,10 @@
       const totalRow = total && synced.length > 1 ? `
         <tr class="total-row">
           <td>All synced companies</td>
-          <td><strong class="delta ${total.net >= 0 ? "good" : "bad"}">${money(total.net)}</strong></td>
+          <td><strong class="delta ${total.net >= 0 ? "good" : "bad"}">${money(total.net)}</strong><br><span>${profitQualityLabel(total)}</span></td>
           <td>${money(total.sales)}</td>
           <td>${money(total.wages)}</td>
-          <td>${money(total.stock)}</td>
+          <td>${stockDisplay(total)}</td>
           <td>${total.employees}</td>
           <td>${money(total.perEmployee)}</td>
           <td>${synced.length} companies</td>
@@ -2551,6 +2592,95 @@
       `).join("") : `<div class="history-item"><span>No history yet</span><strong>Sync or add profit entries</strong><p>Snapshots appear here after API syncs or manual profit updates.</p></div>`;
     }
 
+    function renderWeeklyProfitSummary() {
+      if (!els.weeklyProfitList) return;
+      if (!state.companyHistory.length) {
+        els.weeklyProfitList.innerHTML = `<div class="history-item"><span>No weekly data yet</span><strong>Sync companies</strong><p>Daily snapshots will build a weekly profit total with sales, wages, and exact stock cost.</p></div>`;
+        return;
+      }
+      const now = new Date();
+      const weekStart = new Date(now);
+      weekStart.setHours(0, 0, 0, 0);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      const daily = new Map();
+      state.companyHistory
+        .filter((snapshot) => Number(snapshot.t) >= weekStart.getTime())
+        .sort((a, b) => a.t - b.t)
+        .forEach((snapshot) => {
+          const day = new Date(snapshot.t).toLocaleDateString();
+          daily.set(`${snapshot.companyId}|${day}`, snapshot);
+        });
+      const rows = [...daily.values()];
+      if (!rows.length) {
+        els.weeklyProfitList.innerHTML = `<div class="history-item"><span>This week is empty</span><strong>No snapshots since ${weekStart.toLocaleDateString()}</strong><p>Press Sync All Companies to start this week's profit log.</p></div>`;
+        return;
+      }
+      const byCompany = new Map();
+      rows.forEach((snapshot) => {
+        const item = byCompany.get(snapshot.companyId) || {
+          name: snapshot.name,
+          days: 0,
+          sales: 0,
+          wages: 0,
+          stock: 0,
+          net: 0,
+          missingStock: 0
+        };
+        item.days += 1;
+        item.sales += Number(snapshot.sales) || 0;
+        item.wages += Number(snapshot.wages) || 0;
+        item.stock += Number(snapshot.stock) || 0;
+        item.net += Number(snapshot.net) || 0;
+        item.missingStock += hasExactStockCost(snapshot) ? 0 : 1;
+        byCompany.set(snapshot.companyId, item);
+      });
+      const companies = [...byCompany.values()].sort((a, b) => b.net - a.net);
+      const totals = companies.reduce((sum, company) => {
+        sum.days += company.days;
+        sum.sales += company.sales;
+        sum.wages += company.wages;
+        sum.stock += company.stock;
+        sum.net += company.net;
+        sum.missingStock += company.missingStock;
+        return sum;
+      }, { days: 0, sales: 0, wages: 0, stock: 0, net: 0, missingStock: 0 });
+      const totalStatus = totals.missingStock
+        ? `${totals.missingStock} company-days missing exact stock cost`
+        : "All saved company-days include exact stock cost";
+      const companyRows = companies.map((company) => `
+        <tr>
+          <td>${esc(company.name)}</td>
+          <td>${company.days}</td>
+          <td><strong class="delta ${company.net >= 0 ? "good" : "bad"}">${money(company.net)}</strong><br><span>${company.missingStock ? "Partial week" : "Exact week"}</span></td>
+          <td>${money(company.sales)}</td>
+          <td>${money(company.wages)}</td>
+          <td>${company.missingStock ? `${money(company.stock)} missing ${company.missingStock} day${company.missingStock === 1 ? "" : "s"}` : money(company.stock)}</td>
+        </tr>
+      `).join("");
+      els.weeklyProfitList.innerHTML = `
+        <div class="history-item">
+          <span>Week starts ${weekStart.toLocaleDateString()}</span>
+          <strong>${totals.missingStock ? "Partial weekly profit" : "Exact weekly profit"}: ${money(totals.net)}</strong>
+          <p>Sales ${money(totals.sales)}, wages ${money(totals.wages)}, stock ${money(totals.stock)}. ${totalStatus}.</p>
+        </div>
+        <div class="profit-table-wrap">
+          <table class="profit-table">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Days</th>
+                <th>Week Net</th>
+                <th>Sales</th>
+                <th>Wages</th>
+                <th>Stock</th>
+              </tr>
+            </thead>
+            <tbody>${companyRows}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
     function renderCompanyHistory() {
       const latest = latestCompanySnapshots();
       if (!state.companyHistory.length) {
@@ -2563,11 +2693,11 @@
         return `
           <tr>
             <td>${esc(snapshot.name)}</td>
-            <td><strong class="delta ${snapshot.net >= 0 ? "good" : "bad"}">${money(snapshot.net)}</strong></td>
+            <td><strong class="delta ${snapshot.net >= 0 ? "good" : "bad"}">${money(snapshot.net)}</strong><br><span>${profitQualityLabel(snapshot)}</span></td>
             <td>${previous ? `${delta >= 0 ? "+" : ""}${money(delta)}` : "First sync"}</td>
             <td>${money(snapshot.sales)}</td>
             <td>${money(snapshot.wages)}</td>
-            <td>${money(snapshot.stock)}</td>
+            <td>${stockDisplay(snapshot)}</td>
             <td>${snapshot.employees}</td>
             <td>${new Date(snapshot.t).toLocaleString()}</td>
           </tr>
@@ -2576,8 +2706,8 @@
       const recent = state.companyHistory.slice(-8).reverse().map((snapshot) => `
         <div class="history-item">
           <span>${new Date(snapshot.t).toLocaleString()}</span>
-          <strong>${esc(snapshot.name)}: ${money(snapshot.net)} net</strong>
-          <p>Sales ${money(snapshot.sales)}, wages ${money(snapshot.wages)}, stock ${money(snapshot.stock)}, employees ${snapshot.employees}, source ${esc(snapshot.source)}.</p>
+          <strong>${esc(snapshot.name)}: ${money(snapshot.net)} ${profitQualityLabel(snapshot).toLowerCase()}</strong>
+          <p>Sales ${money(snapshot.sales)}, wages ${money(snapshot.wages)}, stock ${stockDisplay(snapshot)}, employees ${snapshot.employees}, source ${esc(snapshot.source)}.${stockMissingNote(snapshot)}</p>
         </div>
       `).join("");
       els.companyHistoryList.innerHTML = `
@@ -2822,6 +2952,7 @@
       renderWatchCompare();
       renderWatchCompanies();
       renderHistory();
+      renderWeeklyProfitSummary();
       renderCompanyHistory();
       renderRoleLog();
       renderEmployees();
@@ -2904,6 +3035,8 @@
         sales: Number(summary.sales) || 0,
         wages: Number(summary.wages) || 0,
         stock: Number(summary.stock) || 0,
+        stockStatus: summary.stockStatus || (hasExactStockCost(summary) ? "confirmed" : "missing"),
+        stockSource: summary.stockSource || summary.sources?.stock || "daily stock cost not returned; generic stock/order fields ignored",
         employees: Number(summary.employees) || 0,
         perEmployee: Number(summary.perEmployee) || 0,
         avgEffect: Number(summary.avgEffect) || 0,
@@ -3274,13 +3407,14 @@
         sales: Number.isFinite(income) ? income : state.employees.reduce((sum, employee) => sum + employee.profit + employee.wage, 0),
         wages,
         stock: stockCost,
+        stockStatus: stockPick.value !== undefined ? "confirmed" : "missing",
         net: liveDelta,
         perEmployee: state.employees.length ? liveDelta / state.employees.length : 0,
         sources: {
           sales: incomePick.source || "estimated from employee profit + wage",
           wages: "sum(employee.wage)",
           stock: stockPick.source || "daily stock cost not returned; generic stock/order fields ignored",
-          net: Number.isFinite(income) ? "income - stock - wages" : "sum(employee.profit)"
+          net: Number.isFinite(income) ? (stockPick.value !== undefined ? "income - stock - wages" : "income - wages; stock cost missing") : "sum(employee.profit)"
         }
       };
       state.fieldAudit = [
@@ -3288,7 +3422,7 @@
         { label: "Daily income", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: incomePick.source || "not returned", value: incomePick.value ?? state.latestBreakdown.sales },
         { label: "Stock cost", status: stockPick.value !== undefined ? "confirmed" : "missing", source: stockPick.source || "daily stock cost not returned; generic stock/order fields ignored", value: state.latestBreakdown.stock },
         { label: "Wages", status: wages ? "confirmed" : "missing", source: "sum employee wages", value: wages },
-        { label: "Daily net", status: incomePick.value !== undefined ? "confirmed" : "estimated", source: state.latestBreakdown.sources.net, value: liveDelta },
+        { label: "Daily net", status: incomePick.value !== undefined && stockPick.value !== undefined ? "confirmed" : "estimated", source: state.latestBreakdown.sources.net, value: liveDelta },
         { label: "Cache", status: "info", source: "timestamp query added", value: new Date().toLocaleTimeString() }
       ];
       state.apiMeta = {
@@ -3520,7 +3654,7 @@
 
     function exportCompanyHistoryCsv() {
       downloadCsv("torn-company-profit-history.csv", [
-        ["time", "companyId", "company", "source", "net", "sales", "wages", "stock", "employees", "perEmployee", "avgEffect", "avgActivity", "confidence"],
+        ["time", "companyId", "company", "source", "net", "sales", "wages", "stock", "stockStatus", "stockSource", "employees", "perEmployee", "avgEffect", "avgActivity", "confidence"],
         ...state.companyHistory.map((entry) => [
           new Date(entry.t).toISOString(),
           entry.companyId,
@@ -3530,6 +3664,8 @@
           entry.sales,
           entry.wages,
           entry.stock,
+          entry.stockStatus || "missing",
+          entry.stockSource || "",
           entry.employees,
           entry.perEmployee,
           entry.avgEffect,
@@ -3700,6 +3836,9 @@
       renderAll();
     });
     els.jumpCompanyHistory.addEventListener("click", () => {
+      document.getElementById("companyHistoryPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    els.jumpWeeklyHistory.addEventListener("click", () => {
       document.getElementById("companyHistoryPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     els.clearRoleLog.addEventListener("click", () => {

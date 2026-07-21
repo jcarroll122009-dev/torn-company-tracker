@@ -16,6 +16,7 @@ https://jcarroll122009-dev.github.io/torn-company-tracker/torn-company-tracker.h
 - Supports Torn API v2 with v1 fallback.
 - Tracks profit chart data automatically from API syncs.
 - Saves company snapshots so you can compare old data later.
+- Adds daily snapshots into a weekly profit summary.
 - Compares profit across your main company and saved extra companies.
 - Lets you save up to 50 extra company API keys.
 - Lets you edit saved company names/API keys without deleting and remaking them.
@@ -56,8 +57,11 @@ Use Edit next to a saved company if the name or API key changes.
 - Company Profit History stores snapshots for the main company and extra companies.
 - Stock cost is included in profit when Torn returns a daily stock/order cost field.
 - Current stock inventory value is not counted as daily stock cost.
+- Weekly Profit Summary adds one saved snapshot per company per day for the current week.
+- If Torn does not return an exact daily stock cost for a company/day, that row is marked as partial because profit may be too high.
+- Exact weekly profit means every saved company-day included exact sales, wages, and daily stock cost.
 - Snapshots let you look back at older profit, sales, wages, stock cost, employees, and confidence data.
-- Use Export Profit CSV or Export Company History CSV if you want to save the data outside the browser.
+- Use Export Profit CSV or Export Company History CSV if you want to save the data outside the browser. Company history export includes stock status and stock source.
 
 ## Sharing The App
 
