@@ -20,6 +20,8 @@ https://jcarroll122009-dev.github.io/torn-company-tracker/torn-company-tracker.h
 - Compares profit across your main company and saved extra companies.
 - Lets you save up to 50 extra company API keys.
 - Lets you edit saved company names/API keys without deleting and remaking them.
+- Includes a recommended custom-key setup link for company tracking.
+- Lets you decide whether the main API key is remembered on the current device.
 - Auto-syncs extra companies after you press Sync All Companies.
 - Exports employee, profit, and company history CSV files.
 - Stores keys and tracker data in the current browser only.
@@ -27,15 +29,17 @@ https://jcarroll122009-dev.github.io/torn-company-tracker/torn-company-tracker.h
 ## How To Use
 
 1. Open the live app link.
-2. Add your main Torn API key in the Live Torn API panel.
-3. Pick the API mode:
+2. In the Live Torn API panel, use Create recommended custom key if you need a company-tracker key.
+3. Paste your main Torn API key.
+4. Choose whether to remember that key on this device.
+5. Pick the API mode:
    - Best live data: v2 then v1 fallback
    - API v2 only
    - API v1 only
-4. Pick an auto-sync interval or turn auto-sync off.
-5. Press Sync to load your main company data.
-6. Use the profit chart, employee table, alerts, and Company Readout panel to review performance.
-7. Click an employee name to open the drop-down record for that worker.
+6. Pick an auto-sync interval or turn auto-sync off.
+7. Press Sync to load your main company data.
+8. Use the profit chart, employee table, alerts, and Company Readout panel to review performance.
+9. Click an employee name to open the drop-down record for that worker.
 
 ## Extra Companies
 
@@ -78,6 +82,7 @@ Each person has their own saved API keys and data in their own browser. Your sav
 ## API Key Notes
 
 - API keys are saved in browser local storage.
+- If Remember this key on this device is turned off, the main key is only kept for the current browser session.
 - GitHub Pages does not store your keys on a server.
 - Anyone using the app needs their own Torn API key with the needed company access.
 - Only add keys you own or keys the owner has clearly allowed you to use.
